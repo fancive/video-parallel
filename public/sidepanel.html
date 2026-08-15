@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>video-parallel</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <header class="masthead">
+      <a class="wordmark" href="https://www.youtube.com" target="_blank" rel="noreferrer">
+        <span class="wordmark-mark" aria-hidden="true"><i></i><i></i></span>
+        <span>video<span>parallel</span></span>
+      </a>
+      <button class="icon-button" id="settingsButton" type="button" aria-label="打开设置">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z" />
+          <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.37a1.7 1.7 0 0 0-1 .63 1.7 1.7 0 0 0-.35 1.08V21h-4v-.08A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.23 15a1.7 1.7 0 0 0-.63-1 1.7 1.7 0 0 0-1.08-.35H2v-4h.52A1.7 1.7 0 0 0 4.2 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 8.6 4.23a1.7 1.7 0 0 0 1-.63A1.7 1.7 0 0 0 9.95 2.5V2h4v.52A1.7 1.7 0 0 0 15 4.2a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.37 8c.15.39.38.73.7.99.3.25.7.38 1.09.38H22v4h-.84A1.7 1.7 0 0 0 19.4 15Z" />
+        </svg>
+      </button>
+    </header>
+
+    <main>
+      <section class="state state-loading" id="loadingState" aria-live="polite">
+        <div class="scanline" aria-hidden="true"><span></span></div>
+        <p class="eyebrow">Reading the active frame</p>
+        <h1>正在读取字幕轨道</h1>
+        <p>video-parallel 只读取视频已有的字幕，不上传音频。</p>
+      </section>
+
+      <section class="state state-empty" id="emptyState" hidden>
+        <div class="empty-glyph" aria-hidden="true"><span>00:00</span></div>
+        <p class="eyebrow">No caption track</p>
+        <h1 id="emptyTitle">打开一个有字幕的 YouTube 视频</h1>
+        <p id="emptyMessage">支持标准 watch 页面。Shorts、直播和无字幕视频暂不支持。</p>
+        <button class="primary-button" id="retryButton" type="button">重新读取</button>
+      </section>
+
+      <section class="workspace" id="workspace" hidden>
+        <div class="video-context">
+          <div>
+            <p class="eyebrow" id="channelName">YouTube</p>
+            <h1 id="videoTitle">Untitled video</h1>
+          </div>
+          <div class="language-chip" id="languageChip">EN → 中文</div>
+        </div>
+
+        <div class="control-deck">
+          <div class="control-status">
+            <span class="status-dot" id="statusDot" aria-hidden="true"></span>
+            <span id="statusText">字幕已就绪</span>
+          </div>
+          <div class="control-actions">
+            <button class="text-button" id="followButton" type="button" aria-pressed="true">
+              跟随播放
+            </button>
+            <button class="primary-button compact" id="translateButton" type="button">
+              开始翻译
+            </button>
+          </div>
+          <div class="progress-track" id="progressTrack" hidden>
+            <span id="progressBar"></span>
+          </div>
+        </div>
+
+        <div class="lane-labels" aria-hidden="true">
+          <span>ORIGINAL</span>
+          <span class="lane-time">TIMECODE</span>
+          <span id="targetLaneLabel">中文</span>
+        </div>
+
+        <div class="transcript" id="transcript" aria-live="polite"></div>
+      </section>
+    </main>
+
+    <footer class="command-bar" id="commandBar" hidden>
+      <button type="button" id="copyButton">复制对照稿</button>
+      <span aria-hidden="true"></span>
+      <button type="button" id="exportButton">导出 Markdown</button>
+    </footer>
+
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+    <script src="sidepanel.js"></script>
+  </body>
+</html>

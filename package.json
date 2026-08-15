@@ -1,0 +1,25 @@
+{
+  "name": "video-parallel",
+  "version": "0.1.4",
+  "private": true,
+  "description": "Read YouTube subtitles and translations side by side, synced to playback.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check src tests scripts",
+    "lint:fix": "biome check --write src tests scripts",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "check": "npm run typecheck && npm run lint && npm test && npm run build",
+    "package": "npm run check && node scripts/package.mjs"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.8",
+    "@types/chrome": "^0.2.5",
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2"
+  }
+}

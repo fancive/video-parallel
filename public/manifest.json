@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "video-parallel",
+  "version": "0.1.4",
+  "minimum_chrome_version": "116",
+  "description": "Read YouTube subtitles and translations side by side, synced to playback.",
+  "permissions": ["sidePanel", "storage", "tabs", "scripting"],
+  "host_permissions": ["https://www.youtube.com/*"],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Open video-parallel"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

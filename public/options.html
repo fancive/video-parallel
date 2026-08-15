@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>video-parallel 设置</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main class="settings-shell">
+      <header class="settings-header">
+        <a class="wordmark" href="https://github.com/fancive/video-parallel" target="_blank" rel="noreferrer">
+          <span class="wordmark-mark" aria-hidden="true"><i></i><i></i></span>
+          <span>video<span>parallel</span></span>
+        </a>
+        <p>把模型接到你的字幕工作台。Key 只保存在当前 Chrome profile。</p>
+      </header>
+
+      <form id="settingsForm">
+        <section class="settings-section">
+          <div class="section-index">01</div>
+          <div class="section-copy">
+            <p class="eyebrow">Translation engine</p>
+            <h1>选择 AI 服务</h1>
+            <p>支持 OpenAI-compatible Chat Completions。保存时只申请当前接口域名的访问权限。</p>
+          </div>
+          <div class="form-grid">
+            <label>
+              <span>Provider</span>
+              <select id="provider" name="provider">
+                <option value="deepseek">DeepSeek</option>
+                <option value="openai">OpenAI</option>
+                <option value="openrouter">OpenRouter</option>
+                <option value="local">Local / Ollama</option>
+                <option value="custom">Custom</option>
+              </select>
+            </label>
+            <label>
+              <span>Model</span>
+              <input id="model" name="model" autocomplete="off" spellcheck="false" />
+            </label>
+            <label class="wide-field">
+              <span>Base URL</span>
+              <input id="baseUrl" name="baseUrl" type="url" autocomplete="off" spellcheck="false" />
+            </label>
+            <label class="wide-field">
+              <span>API Key <small>本地服务可以留空</small></span>
+              <input id="apiKey" name="apiKey" type="password" autocomplete="off" spellcheck="false" />
+            </label>
+          </div>
+        </section>
+
+        <section class="settings-section">
+          <div class="section-index">02</div>
+          <div class="section-copy">
+            <p class="eyebrow">Reading lane</p>
+            <h1>设置目标语言</h1>
+            <p>字幕保留原文，模型只生成右侧译文。缓存会按语言、接口与模型隔离。</p>
+          </div>
+          <div class="form-grid">
+            <label>
+              <span>Target language</span>
+              <select id="targetLanguage" name="targetLanguage">
+                <option value="zh-CN">简体中文</option>
+                <option value="zh-TW">繁體中文</option>
+                <option value="ja">日本語</option>
+                <option value="ko">한국어</option>
+                <option value="en">English</option>
+                <option value="fr">Français</option>
+                <option value="de">Deutsch</option>
+                <option value="es">Español</option>
+              </select>
+            </label>
+            <label class="toggle-field">
+              <span>Playback sync</span>
+              <input id="autoFollow" name="autoFollow" type="checkbox" />
+              <i aria-hidden="true"></i>
+              <small>播放时自动定位到当前字幕</small>
+            </label>
+          </div>
+        </section>
+
+        <div class="settings-actions">
+          <div>
+            <strong id="saveStatus" role="status" aria-live="polite">尚未修改</strong>
+            <span>Chrome 本地存储不是加密密码库，请使用专用 Key 和消费上限。</span>
+          </div>
+          <button class="save-button" type="submit">保存设置</button>
+        </div>
+      </form>
+    </main>
+    <script src="options.js"></script>
+  </body>
+</html>
