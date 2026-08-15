@@ -13,14 +13,14 @@
           <span class="wordmark-mark" aria-hidden="true"><i></i><i></i></span>
           <span>video<span>parallel</span></span>
         </a>
-        <p>把模型接到你的字幕工作台。Key 只保存在当前 Chrome profile。</p>
+        <p>把模型接到你的视频概要工作台。Key 只保存在当前 Chrome profile。</p>
       </header>
 
       <form id="settingsForm">
         <section class="settings-section">
           <div class="section-index">01</div>
           <div class="section-copy">
-            <p class="eyebrow">Translation engine</p>
+            <p class="eyebrow">Summary engine</p>
             <h1>选择 AI 服务</h1>
             <p>支持 OpenAI-compatible Chat Completions。保存时只申请当前接口域名的访问权限。</p>
           </div>
@@ -53,13 +53,13 @@
         <section class="settings-section">
           <div class="section-index">02</div>
           <div class="section-copy">
-            <p class="eyebrow">Reading lane</p>
-            <h1>设置目标语言</h1>
-            <p>字幕保留原文，模型只生成右侧译文。缓存会按语言、接口与模型隔离。</p>
+            <p class="eyebrow">Output language</p>
+            <h1>设置概要语言</h1>
+            <p>模型会用所选语言完成内容转换、语义切章和概要。缓存按语言、接口与模型隔离。</p>
           </div>
           <div class="form-grid">
             <label>
-              <span>Target language</span>
+              <span>Summary language</span>
               <select id="targetLanguage" name="targetLanguage">
                 <option value="zh-CN">简体中文</option>
                 <option value="zh-TW">繁體中文</option>
@@ -75,7 +75,7 @@
               <span>Playback sync</span>
               <input id="autoFollow" name="autoFollow" type="checkbox" />
               <i aria-hidden="true"></i>
-              <small>播放时自动定位到当前字幕</small>
+              <small>播放时自动定位到当前章节</small>
             </label>
           </div>
         </section>

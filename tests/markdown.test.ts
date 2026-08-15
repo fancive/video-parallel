@@ -1,29 +1,33 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildParallelMarkdown, sanitizeFilename } from "../src/lib/markdown";
+import { buildSummaryMarkdown, sanitizeFilename } from "../src/lib/markdown";
 
-test("buildParallelMarkdown preserves source, translation, and timecodes", () => {
-  const output = buildParallelMarkdown(
+test("buildSummaryMarkdown exports chapter summaries without sentence translations", () => {
+  const output = buildSummaryMarkdown(
     {
       title: "A useful video",
       channel: "Example",
       url: "https://www.youtube.com/watch?v=abcdef",
       sourceLanguage: "en",
-      targetLanguage: "简体中文",
+      summaryLanguage: "简体中文",
     },
     [
       {
-        id: "s0",
+        id: "c0",
         startMs: 42_000,
-        durationMs: 1000,
-        text: "The source line.",
-        translatedText: "译文。",
+        endMs: 120_000,
+        content: {
+          title: "核心观点",
+          summary: "这是章节摘要。",
+          keyPoints: ["重点一", "重点二"],
+        },
       },
     ],
   );
   assert.match(output, /^# A useful video/m);
-  assert.match(output, /## 00:42/);
-  assert.match(output, /The source line\.\n\n译文。/);
+  assert.match(output, /## 内容概要\n\n### 00:42 · 核心观点/);
+  assert.match(output, /这是章节摘要。\n\n- 重点一\n- 重点二/);
+  assert.doesNotMatch(output, /逐句对照|Not translated/);
 });
 
 test("sanitizeFilename removes reserved filesystem characters", () => {

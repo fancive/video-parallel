@@ -5,16 +5,27 @@ import {
   SETTINGS_KEY,
 } from "./lib/settings";
 import {
+  buildChapterMessages,
+  MAX_CHAPTER_TRANSCRIPT_CHARACTERS,
+  MAX_CHAPTER_TRANSCRIPT_SEGMENTS,
+  parseChapterResponse,
+} from "./lib/summary";
+import {
   extractVideoId,
   json3CaptionUrl,
   parseJson3Text,
   parseJson3Transcript,
   selectCaptionTrack,
 } from "./lib/transcript";
-import { buildTranslationMessages, parseTranslationResponse } from "./lib/translation";
-import type { AppSettings, PlayerSnapshot, TranscriptSegment, VideoContext } from "./lib/types";
+import type {
+  AppSettings,
+  ChapterOutline,
+  PlayerSnapshot,
+  TranscriptSegment,
+  VideoContext,
+} from "./lib/types";
 
-const AI_TIMEOUT_MS = 90_000;
+const AI_TIMEOUT_MS = 120_000;
 const MAX_AI_RESPONSE_BYTES = 2 * 1024 * 1024;
 const YOUTUBE_CAPTION_FALLBACK_CLIENT = {
   clientName: "ANDROID",
@@ -32,6 +43,8 @@ interface CaptionFetchResult {
   error: string;
 }
 
+const pendingProcessTabs = new Set<number>();
+
 void chrome.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" }).catch(() => {});
 void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
 void configureExistingSidePanels();
@@ -44,6 +57,10 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (!changeInfo.url) return;
   void configureSidePanelForTab(tabId, changeInfo.url);
+});
+
+chrome.commands.onCommand.addListener((command) => {
+  void handleShortcut(command);
 });
 
 chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
@@ -83,8 +100,8 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
     return true;
   }
 
-  if (type === "TRANSLATE_BATCH") {
-    translateBatch(
+  if (type === "GENERATE_CHAPTERS") {
+    generateChapters(
       Array.isArray(request.segments) ? (request.segments as TranscriptSegment[]) : [],
       String(request.targetLanguage ?? ""),
       String(request.videoTitle ?? ""),
@@ -92,6 +109,13 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
       .then((result) => sendResponse({ ok: true, ...result }))
       .catch((error: unknown) => sendResponse({ ok: false, error: errorMessage(error) }));
     return true;
+  }
+
+  if (type === "CONSUME_PROCESS_REQUEST") {
+    const tabId = Number(request.tabId);
+    const start = pendingProcessTabs.delete(tabId);
+    sendResponse({ ok: true, start });
+    return false;
   }
 
   if (type === "OPEN_OPTIONS") {
@@ -117,6 +141,40 @@ async function configureSidePanelForTab(tabId: number, url: string): Promise<voi
   await chrome.sidePanel.setOptions(
     enabled ? { tabId, path: "sidepanel.html", enabled: true } : { tabId, enabled: false },
   );
+}
+
+async function handleShortcut(command: string): Promise<void> {
+  if (command !== "toggle-side-panel" && command !== "process-video") return;
+  const tab = await activeYouTubeTab();
+  if (!tab?.id) return;
+
+  const panelOpen = await isSidePanelOpen(tab.id);
+  if (command === "toggle-side-panel" && panelOpen) {
+    if (typeof chrome.sidePanel.close === "function") {
+      await chrome.sidePanel.close({ tabId: tab.id });
+    } else {
+      await chrome.runtime.sendMessage({ type: "CLOSE_PANEL", tabId: tab.id }).catch(() => {});
+    }
+    return;
+  }
+
+  await chrome.sidePanel.setOptions({ tabId: tab.id, path: "sidepanel.html", enabled: true });
+  if (command === "process-video") pendingProcessTabs.add(tab.id);
+  if (!panelOpen) await chrome.sidePanel.open({ tabId: tab.id });
+  if (command === "process-video" && panelOpen) {
+    await chrome.runtime.sendMessage({ type: "START_PROCESSING", tabId: tab.id }).catch(() => {});
+  }
+}
+
+async function activeYouTubeTab(): Promise<chrome.tabs.Tab | null> {
+  const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  const tab = tabs[0];
+  return tab?.id && extractVideoId(tab.url ?? "") ? tab : null;
+}
+
+async function isSidePanelOpen(tabId: number): Promise<boolean> {
+  const contexts = await chrome.runtime.getContexts({ contextTypes: ["SIDE_PANEL"] });
+  return contexts.some((context) => context.tabId === tabId);
 }
 
 async function loadActiveVideo(): Promise<VideoContext> {
@@ -521,64 +579,36 @@ async function assertYouTubeTab(tabId: number): Promise<void> {
   }
 }
 
-async function translateBatch(
+async function generateChapters(
   segments: TranscriptSegment[],
   targetLanguage: string,
   videoTitle: string,
-): Promise<{ translations: Record<string, string>; missingIds: string[] }> {
-  validateTranslationSegments(segments);
+): Promise<{ chapters: ChapterOutline[] }> {
+  validateChapterSegments(segments);
   const settings = await getSettings();
-  if (!settings.model) throw new Error("请先在设置中填写模型名称。");
-  if (!settings.apiKey && settings.provider !== "local") {
-    throw new Error("请先在设置中填写 API Key。");
-  }
+  await assertProviderReady(settings);
 
-  const permission = providerOriginPattern(settings.baseUrl);
-  const hasPermission = await chrome.permissions.contains({ origins: [permission] });
-  if (!hasPermission) throw new Error("当前接口还没有网络权限，请重新保存设置。");
-
-  const firstContent = await requestTranslationCompletion(
-    settings,
-    segments,
-    targetLanguage,
-    videoTitle,
-  );
-  const parsed = parseTranslationResponse(
-    firstContent,
-    segments.map((segment) => segment.id),
-  );
-  const translations = { ...parsed.translations };
-  let missingIds = parsed.missingIds;
-
-  if (missingIds.length > 0) {
-    const missingSet = new Set(missingIds);
-    const retrySegments = segments.filter((segment) => missingSet.has(segment.id));
+  let parseError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const content = await requestAiCompletion(
+      settings,
+      buildChapterMessages(segments, targetLanguage, videoTitle),
+    );
     try {
-      const retryContent = await requestTranslationCompletion(
-        settings,
-        retrySegments,
-        targetLanguage,
-        videoTitle,
-      );
-      const retryParsed = parseTranslationResponse(retryContent, missingIds);
-      Object.assign(translations, retryParsed.translations);
-      missingIds = retryParsed.missingIds;
+      return { chapters: parseChapterResponse(content, segments) };
     } catch (error) {
-      console.warn(
-        `[video-parallel] Could not retry ${missingIds.length} missing translation segment(s):`,
-        errorMessage(error),
-      );
+      parseError = error;
+      if (attempt === 0) {
+        console.warn("[video-parallel] Retrying invalid chapter response:", errorMessage(error));
+      }
     }
   }
-
-  return { translations, missingIds };
+  throw parseError instanceof Error ? parseError : new Error("AI 返回的章节无法解析。");
 }
 
-async function requestTranslationCompletion(
+async function requestAiCompletion(
   settings: AppSettings,
-  segments: TranscriptSegment[],
-  targetLanguage: string,
-  videoTitle: string,
+  messages: Array<{ role: "system" | "user"; content: string }>,
 ): Promise<string> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
@@ -594,7 +624,7 @@ async function requestTranslationCompletion(
         model: settings.model,
         temperature: 0.2,
         response_format: { type: "json_object" },
-        messages: buildTranslationMessages(segments, targetLanguage, videoTitle),
+        messages,
       }),
     });
     const text = await readBoundedText(response);
@@ -611,7 +641,7 @@ async function requestTranslationCompletion(
     return content;
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
-      throw new Error("AI 请求超过 90 秒，请重试。");
+      throw new Error("AI 请求超过 120 秒，请重试。");
     }
     throw error;
   } finally {
@@ -624,9 +654,20 @@ async function getSettings(): Promise<AppSettings> {
   return normalizeSettings(stored[SETTINGS_KEY]);
 }
 
-function validateTranslationSegments(segments: TranscriptSegment[]): void {
-  if (segments.length === 0 || segments.length > 8) {
-    throw new Error("每次必须翻译 1 到 8 个字幕段。");
+async function assertProviderReady(settings: AppSettings): Promise<void> {
+  if (!settings.model) throw new Error("请先在设置中填写模型名称。");
+  if (!settings.apiKey && settings.provider !== "local") {
+    throw new Error("请先在设置中填写 API Key。");
+  }
+  const permission = providerOriginPattern(settings.baseUrl);
+  const hasPermission = await chrome.permissions.contains({ origins: [permission] });
+  if (!hasPermission) throw new Error("当前接口还没有网络权限，请重新保存设置。");
+}
+
+function validateChapterSegments(segments: TranscriptSegment[]): void {
+  if (segments.length === 0) throw new Error("没有可用于生成概要的字幕。");
+  if (segments.length > MAX_CHAPTER_TRANSCRIPT_SEGMENTS) {
+    throw new Error(`字幕超过单次智能切章上限（${MAX_CHAPTER_TRANSCRIPT_SEGMENTS} 段）。`);
   }
   let characters = 0;
   const ids = new Set<string>();
@@ -634,11 +675,20 @@ function validateTranslationSegments(segments: TranscriptSegment[]): void {
     if (!/^[A-Za-z0-9_-]{1,80}$/.test(segment.id) || ids.has(segment.id)) {
       throw new Error("字幕段 ID 无效。");
     }
-    if (!segment.text || segment.text.length > 3000) throw new Error("字幕文本无效。");
+    if (
+      !segment.text ||
+      segment.text.length > 3000 ||
+      !Number.isFinite(segment.startMs) ||
+      segment.startMs < 0
+    ) {
+      throw new Error("字幕文本或时间戳无效。");
+    }
     ids.add(segment.id);
     characters += segment.text.length;
   }
-  if (characters > 4000) throw new Error("单次翻译内容超过 4000 字符。");
+  if (characters > MAX_CHAPTER_TRANSCRIPT_CHARACTERS) {
+    throw new Error(`字幕超过单次智能切章上限（${MAX_CHAPTER_TRANSCRIPT_CHARACTERS} 字符）。`);
+  }
 }
 
 async function readBoundedText(response: Response): Promise<string> {

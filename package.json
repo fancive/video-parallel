@@ -1,8 +1,8 @@
 {
   "name": "video-parallel",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
-  "description": "Read YouTube subtitles and translations side by side, synced to playback.",
+  "description": "Turn YouTube captions into AI-generated chapter summaries synced to playback.",
   "license": "MIT",
   "type": "module",
   "scripts": {

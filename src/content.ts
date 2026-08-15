@@ -57,7 +57,7 @@ function createButton(): HTMLButtonElement {
   const button = document.createElement("button");
   button.id = BUTTON_ID;
   button.type = "button";
-  button.setAttribute("aria-label", "在 video-parallel 中对照阅读字幕");
+  button.setAttribute("aria-label", "在 video-parallel 中查看章节概要");
 
   const mark = document.createElement("span");
   mark.className = "vp-mark";
@@ -65,7 +65,7 @@ function createButton(): HTMLButtonElement {
   mark.append(document.createElement("i"), document.createElement("i"));
 
   const label = document.createElement("span");
-  label.textContent = "Parallel";
+  label.textContent = "概要";
   button.append(mark, label);
   button.addEventListener("click", () => {
     void chrome.runtime.sendMessage({ type: "OPEN_PANEL" });

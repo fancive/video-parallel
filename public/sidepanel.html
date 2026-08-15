@@ -21,14 +21,14 @@
     </header>
 
     <main>
-      <section class="state state-loading" id="loadingState" aria-live="polite">
+      <section class="state" id="loadingState" aria-live="polite">
         <div class="scanline" aria-hidden="true"><span></span></div>
-        <p class="eyebrow">Reading the active frame</p>
-        <h1>正在读取字幕轨道</h1>
-        <p>video-parallel 只读取视频已有的字幕，不上传音频。</p>
+        <p class="eyebrow">Reading captions</p>
+        <h1>正在准备视频概要</h1>
+        <p>先读取视频已有字幕，再由你配置的模型识别章节。</p>
       </section>
 
-      <section class="state state-empty" id="emptyState" hidden>
+      <section class="state" id="emptyState" hidden>
         <div class="empty-glyph" aria-hidden="true"><span>00:00</span></div>
         <p class="eyebrow">No caption track</p>
         <h1 id="emptyTitle">打开一个有字幕的 YouTube 视频</h1>
@@ -42,7 +42,7 @@
             <p class="eyebrow" id="channelName">YouTube</p>
             <h1 id="videoTitle">Untitled video</h1>
           </div>
-          <div class="language-chip" id="languageChip">EN → 中文</div>
+          <div class="language-chip" id="languageChip">中文概要</div>
         </div>
 
         <div class="control-deck">
@@ -54,27 +54,30 @@
             <button class="text-button" id="followButton" type="button" aria-pressed="true">
               跟随播放
             </button>
-            <button class="primary-button compact" id="translateButton" type="button">
-              开始翻译
+            <button class="primary-button compact" id="processButton" type="button">
+              开始处理
             </button>
           </div>
-          <div class="progress-track" id="progressTrack" hidden>
-            <span id="progressBar"></span>
+        </div>
+
+        <section class="summary-section" aria-labelledby="summaryTitle">
+          <div class="summary-heading">
+            <div>
+              <p class="eyebrow">Content map</p>
+              <h2 id="summaryTitle">章节概要</h2>
+            </div>
+            <span class="chapter-count" id="chapterCount">等待处理</span>
           </div>
-        </div>
-
-        <div class="lane-labels" aria-hidden="true">
-          <span>ORIGINAL</span>
-          <span class="lane-time">TIMECODE</span>
-          <span id="targetLaneLabel">中文</span>
-        </div>
-
-        <div class="transcript" id="transcript" aria-live="polite"></div>
+          <p class="summary-status" id="summaryStatus">
+            模型会阅读完整字幕，按话题和论证转折划分章节。
+          </p>
+          <div class="summary-list" id="summaryList" aria-live="polite"></div>
+        </section>
       </section>
     </main>
 
     <footer class="command-bar" id="commandBar" hidden>
-      <button type="button" id="copyButton">复制对照稿</button>
+      <button type="button" id="copyButton">复制概要</button>
       <span aria-hidden="true"></span>
       <button type="button" id="exportButton">导出 Markdown</button>
     </footer>

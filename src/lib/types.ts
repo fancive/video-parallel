@@ -22,8 +22,6 @@ export interface TranscriptSegment {
   startMs: number;
   durationMs: number;
   text: string;
-  translatedText?: string;
-  translationError?: string;
 }
 
 export interface VideoContext {
@@ -43,12 +41,31 @@ export interface ProviderPreset {
   model: string;
 }
 
-export interface TranslationCache {
-  version: 1;
+export interface SummaryContent {
+  title: string;
+  summary: string;
+  keyPoints: string[];
+}
+
+export interface ChapterOutline extends SummaryContent {
+  startSegmentId: string;
+}
+
+export interface SummaryBlock {
+  id: string;
+  startMs: number;
+  endMs: number;
+  content: SummaryContent;
+}
+
+export interface SummaryCache {
+  version: 2;
+  promptVersion: number;
   videoId: string;
   targetLanguage: string;
   providerFingerprint: string;
-  translations: Record<string, string>;
+  sourceFingerprint: string;
+  chapters: Array<{ startMs: number; content: SummaryContent }>;
   updatedAt: number;
 }
 

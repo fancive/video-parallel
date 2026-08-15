@@ -1,34 +1,37 @@
 import { formatTimecode } from "./transcript";
-import type { TranscriptSegment } from "./types";
+import type { SummaryBlock } from "./types";
 
 interface MarkdownVideo {
   title: string;
   channel: string;
   url: string;
   sourceLanguage: string;
-  targetLanguage: string;
+  summaryLanguage: string;
 }
 
-export function buildParallelMarkdown(video: MarkdownVideo, segments: TranscriptSegment[]): string {
+export function buildSummaryMarkdown(video: MarkdownVideo, chapters: SummaryBlock[]): string {
   const lines = [
     `# ${video.title}`,
     "",
     `- Channel: ${video.channel}`,
     `- Source: ${video.url}`,
-    `- Languages: ${video.sourceLanguage} → ${video.targetLanguage}`,
+    `- Caption language: ${video.sourceLanguage}`,
+    `- Summary language: ${video.summaryLanguage}`,
     "- Exported by video-parallel",
+    "",
+    "## 内容概要",
     "",
   ];
 
-  for (const segment of segments) {
+  for (const chapter of chapters) {
     lines.push(
-      `## ${formatTimecode(segment.startMs)}`,
+      `### ${formatTimecode(chapter.startMs)} · ${chapter.content.title}`,
       "",
-      segment.text,
-      "",
-      segment.translatedText || "_Not translated_",
+      chapter.content.summary,
       "",
     );
+    for (const point of chapter.content.keyPoints) lines.push(`- ${point}`);
+    lines.push("");
   }
   return `${lines.join("\n").trimEnd()}\n`;
 }

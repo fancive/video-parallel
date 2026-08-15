@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "video-parallel",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "minimum_chrome_version": "116",
-  "description": "Read YouTube subtitles and translations side by side, synced to playback.",
+  "description": "Turn YouTube captions into AI-generated chapter summaries synced to playback.",
   "permissions": ["sidePanel", "storage", "tabs", "scripting"],
   "host_permissions": ["https://www.youtube.com/*"],
   "optional_host_permissions": [
@@ -16,6 +16,16 @@
   },
   "action": {
     "default_title": "Open video-parallel"
+  },
+  "commands": {
+    "toggle-side-panel": {
+      "suggested_key": { "default": "Alt+Shift+P" },
+      "description": "打开或关闭当前视频的概要侧边栏"
+    },
+    "process-video": {
+      "suggested_key": { "default": "Alt+Shift+S" },
+      "description": "打开侧边栏并生成当前视频的章节概要"
+    }
   },
   "options_ui": {
     "page": "options.html",

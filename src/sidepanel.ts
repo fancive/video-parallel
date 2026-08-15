@@ -1,4 +1,4 @@
-import { buildParallelMarkdown, sanitizeFilename } from "./lib/markdown";
+import { buildSummaryMarkdown, sanitizeFilename } from "./lib/markdown";
 import {
   DEFAULT_SETTINGS,
   normalizeSettings,
@@ -6,17 +6,24 @@ import {
   SETTINGS_KEY,
   TARGET_LANGUAGE_LABELS,
 } from "./lib/settings";
+import { makeChapterBlocks, SUMMARY_PROMPT_VERSION } from "./lib/summary";
 import { formatTimecode } from "./lib/transcript";
-import { makeTranslationBatches } from "./lib/translation";
-import type { AppSettings, TranscriptSegment, TranslationCache, VideoContext } from "./lib/types";
+import type {
+  AppSettings,
+  ChapterOutline,
+  SummaryBlock,
+  SummaryCache,
+  SummaryContent,
+  VideoContext,
+} from "./lib/types";
 
 interface RuntimeResponse {
   ok: boolean;
   error?: string;
   video?: VideoContext;
   seconds?: number;
-  translations?: Record<string, string>;
-  missingIds?: string[];
+  chapters?: ChapterOutline[];
+  start?: boolean;
 }
 
 const loadingState = element<HTMLElement>("loadingState");
@@ -28,28 +35,28 @@ const commandBar = element<HTMLElement>("commandBar");
 const videoTitle = element<HTMLElement>("videoTitle");
 const channelName = element<HTMLElement>("channelName");
 const languageChip = element<HTMLElement>("languageChip");
-const targetLaneLabel = element<HTMLElement>("targetLaneLabel");
-const transcript = element<HTMLElement>("transcript");
+const summaryList = element<HTMLElement>("summaryList");
+const summaryStatus = element<HTMLElement>("summaryStatus");
+const chapterCount = element<HTMLElement>("chapterCount");
 const statusDot = element<HTMLElement>("statusDot");
 const statusText = element<HTMLElement>("statusText");
-const translateButton = element<HTMLButtonElement>("translateButton");
+const processButton = element<HTMLButtonElement>("processButton");
 const followButton = element<HTMLButtonElement>("followButton");
-const progressTrack = element<HTMLElement>("progressTrack");
-const progressBar = element<HTMLElement>("progressBar");
 const toast = element<HTMLElement>("toast");
 
 let currentVideo: VideoContext | null = null;
+let currentChapters: SummaryBlock[] = [];
 let settings: AppSettings = DEFAULT_SETTINGS;
-let activeSegmentId = "";
+let activeChapterId = "";
 let playbackTimer: number | undefined;
 let toastTimer: number | undefined;
 let loadingGeneration = 0;
-let translationRunning = false;
+let processing = false;
 const hasExtensionRuntime = typeof chrome !== "undefined" && Boolean(chrome.runtime?.id);
 
 element<HTMLButtonElement>("settingsButton").addEventListener("click", openSettings);
 element<HTMLButtonElement>("retryButton").addEventListener("click", () => void loadVideo());
-translateButton.addEventListener("click", () => void translateAll());
+processButton.addEventListener("click", () => void processVideo());
 followButton.addEventListener("click", toggleFollow);
 element<HTMLButtonElement>("copyButton").addEventListener("click", () => void copyMarkdown());
 element<HTMLButtonElement>("exportButton").addEventListener("click", exportMarkdown);
@@ -59,11 +66,23 @@ if (hasExtensionRuntime) {
     if (areaName !== "local" || !changes[SETTINGS_KEY]) return;
     settings = normalizeSettings(changes[SETTINGS_KEY].newValue);
     updateLanguageLabels();
+    if (currentVideo && !processing) void reloadSummaryCache();
   });
 
   chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     if (tabId !== currentVideo?.tabId || !changeInfo.url) return;
     void loadVideo();
+  });
+
+  chrome.runtime.onMessage.addListener((message: unknown) => {
+    if (!message || typeof message !== "object") return false;
+    const request = message as Record<string, unknown>;
+    const tabId = Number(request.tabId);
+    if (request.type === "START_PROCESSING" && tabId === currentVideo?.tabId) {
+      void consumeProcessRequestAndStart(tabId);
+    }
+    if (request.type === "CLOSE_PANEL" && tabId === currentVideo?.tabId) window.close();
+    return false;
   });
 
   void boot();
@@ -78,6 +97,11 @@ async function boot(): Promise<void> {
   await loadVideo();
 }
 
+async function consumeProcessRequestAndStart(tabId: number): Promise<void> {
+  await sendMessage({ type: "CONSUME_PROCESS_REQUEST", tabId });
+  await processVideo();
+}
+
 async function loadVideo(): Promise<void> {
   const generation = ++loadingGeneration;
   stopPlaybackTracking();
@@ -88,14 +112,22 @@ async function loadVideo(): Promise<void> {
     if (!response.ok || !response.video) throw new Error(response.error || "无法读取视频。");
 
     currentVideo = response.video;
-    await restoreTranslationCache();
+    currentChapters = [];
+    await restoreSummaryCache();
     renderVideo();
     showState("workspace");
     startPlaybackTracking();
+
+    const pending = await sendMessage({
+      type: "CONSUME_PROCESS_REQUEST",
+      tabId: currentVideo.tabId,
+    });
+    if (pending.ok && pending.start) void processVideo();
   } catch (error) {
     if (generation !== loadingGeneration) return;
     currentVideo = null;
-    emptyTitle.textContent = "还不能建立对照轨道";
+    currentChapters = [];
+    emptyTitle.textContent = "还不能生成视频概要";
     emptyMessage.textContent = error instanceof Error ? error.message : String(error);
     showState("empty");
   }
@@ -106,196 +138,193 @@ function renderVideo(): void {
   videoTitle.textContent = currentVideo.title;
   channelName.textContent = currentVideo.channel;
   updateLanguageLabels();
-  transcript.replaceChildren();
+  renderSummary();
+  setStatus(currentChapters.length > 0 ? "概要已从本地缓存恢复" : "字幕已就绪", false);
+}
 
-  for (const segment of currentVideo.segments) {
-    const row = document.createElement("article");
-    row.className = "pair-row";
-    row.dataset.segmentId = segment.id;
-    row.dataset.startMs = String(segment.startMs);
-    row.tabIndex = 0;
-    row.setAttribute("aria-label", `${formatTimecode(segment.startMs)}，跳转到此处`);
+async function processVideo(): Promise<void> {
+  if (!currentVideo || processing) return;
+  if (!ensureProviderConfigured()) return;
 
-    const source = document.createElement("p");
-    source.className = "lane-copy source";
-    source.textContent = segment.text;
+  const video = currentVideo;
+  processing = true;
+  processButton.disabled = true;
+  statusDot.classList.add("is-working");
+  setStatus("模型正在识别章节并生成概要", true);
+  summaryStatus.textContent = "正在阅读完整字幕。较长视频可能需要一两分钟。";
+
+  try {
+    const response = await sendMessage({
+      type: "GENERATE_CHAPTERS",
+      segments: video.segments,
+      targetLanguage: settings.targetLanguage,
+      videoTitle: video.title,
+    });
+    if (!response.ok || !response.chapters) {
+      throw new Error(response.error || "章节概要生成失败。");
+    }
+    if (currentVideo?.videoId !== video.videoId) return;
+
+    const chapters = makeChapterBlocks(video.segments, response.chapters);
+    if (chapters.length === 0) throw new Error("模型没有返回可显示的章节。");
+    currentChapters = chapters;
+    await saveSummaryCache();
+    renderSummary();
+    setStatus(`已生成 ${chapters.length} 个章节`, false);
+    showToast("章节概要已生成并保存在本地");
+  } catch (error) {
+    setStatus("处理已暂停", false);
+    summaryStatus.textContent = currentChapters.length
+      ? "上次概要仍然保留，可以重新处理。"
+      : "处理没有完成，请检查模型设置后重试。";
+    showToast(error instanceof Error ? error.message : String(error));
+  } finally {
+    processing = false;
+    statusDot.classList.remove("is-working");
+    processButton.disabled = false;
+    updateProcessButton();
+  }
+}
+
+function renderSummary(): void {
+  summaryList.replaceChildren();
+  chapterCount.textContent =
+    currentChapters.length > 0 ? `${currentChapters.length} 章` : "等待处理";
+  summaryStatus.textContent = currentChapters.length
+    ? "章节由模型根据内容转折划分；点击任意卡片跳到对应位置。"
+    : "模型会阅读完整字幕，按话题和论证转折划分章节。";
+
+  if (currentChapters.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "summary-empty";
+    const title = document.createElement("strong");
+    title.textContent = "从完整内容中找出真正的章节";
+    const copy = document.createElement("span");
+    copy.textContent = "开始处理后，模型会同时完成目标语言转换、切章和概要。";
+    empty.append(title, copy);
+    summaryList.appendChild(empty);
+    updateProcessButton();
+    return;
+  }
+
+  for (const chapter of currentChapters) {
+    const card = document.createElement("article");
+    card.className = "summary-card";
+    card.dataset.chapterId = chapter.id;
+    card.tabIndex = 0;
+    card.setAttribute("role", "button");
+    card.setAttribute("aria-label", `${formatTimecode(chapter.startMs)}，跳到本章`);
 
     const time = document.createElement("div");
-    time.className = "time-node";
-    const timeLabel = document.createElement("span");
-    timeLabel.textContent = formatTimecode(segment.startMs);
-    time.appendChild(timeLabel);
+    time.className = "summary-time";
+    const start = document.createElement("strong");
+    start.textContent = formatTimecode(chapter.startMs);
+    const end = document.createElement("span");
+    end.textContent = formatTimecode(chapter.endMs);
+    time.append(start, end);
 
-    const target = document.createElement("p");
-    target.className = "lane-copy target";
-    updateTargetNode(target, segment);
+    const body = document.createElement("div");
+    body.className = "summary-copy";
+    const title = document.createElement("h3");
+    title.textContent = chapter.content.title;
+    const copy = document.createElement("p");
+    copy.textContent = chapter.content.summary;
+    body.append(title, copy);
 
-    row.append(source, time, target);
-    row.addEventListener("click", () => void seekTo(segment.startMs / 1000));
-    row.addEventListener("keydown", (event) => {
+    if (chapter.content.keyPoints.length > 0) {
+      const points = document.createElement("ul");
+      for (const point of chapter.content.keyPoints) {
+        const item = document.createElement("li");
+        item.textContent = point;
+        points.appendChild(item);
+      }
+      body.appendChild(points);
+    }
+
+    card.append(time, body);
+    card.addEventListener("click", () => void seekTo(chapter.startMs / 1000));
+    card.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
-      void seekTo(segment.startMs / 1000);
+      void seekTo(chapter.startMs / 1000);
     });
-    transcript.appendChild(row);
+    summaryList.appendChild(card);
   }
-
-  updateTranslationButton();
-  setStatus("字幕已就绪", false);
+  updateProcessButton();
 }
 
-function updateTargetNode(node: HTMLElement, segment: TranscriptSegment): void {
-  node.classList.remove("is-pending", "is-error");
-  if (segment.translatedText) {
-    node.textContent = segment.translatedText;
-    return;
-  }
-  if (segment.translationError) {
-    node.classList.add("is-error");
-    node.textContent = segment.translationError;
-    return;
-  }
-  node.classList.add("is-pending");
-  node.textContent = "等待翻译";
+async function reloadSummaryCache(): Promise<void> {
+  currentChapters = [];
+  await restoreSummaryCache();
+  renderSummary();
+  setStatus(currentChapters.length ? "已载入当前设置的概要缓存" : "字幕已就绪", false);
 }
 
-async function translateAll(): Promise<void> {
-  if (!currentVideo || translationRunning) return;
-  if (!settings.model || (!settings.apiKey && settings.provider !== "local")) {
-    showToast("先配置 AI Provider 和 API Key");
-    openSettings();
-    return;
-  }
-
-  const untranslated = currentVideo.segments.filter((segment) => !segment.translatedText);
-  if (untranslated.length === 0) {
-    showToast("当前字幕已经全部翻译");
-    return;
-  }
-
-  const batches = makeTranslationBatches(untranslated);
-  for (const segment of untranslated) {
-    segment.translationError = undefined;
-    refreshSegment(segment);
-  }
-  translationRunning = true;
-  translateButton.disabled = true;
-  progressTrack.hidden = false;
-  statusDot.classList.add("is-working");
-
-  let incompleteCount = 0;
-  try {
-    for (let index = 0; index < batches.length; index += 1) {
-      const batch = batches[index];
-      if (!batch) continue;
-      setStatus(`翻译轨道 ${index + 1} / ${batches.length}`, true);
-      progressBar.style.width = `${Math.round((index / batches.length) * 100)}%`;
-
-      const response = await sendMessage({
-        type: "TRANSLATE_BATCH",
-        segments: batch.map(({ id, startMs, durationMs, text }) => ({
-          id,
-          startMs,
-          durationMs,
-          text,
-        })),
-        targetLanguage: settings.targetLanguage,
-        videoTitle: currentVideo.title,
-      });
-      if (!response.ok || !response.translations) {
-        throw new Error(response.error || "翻译失败。");
-      }
-
-      const missingIds = new Set(response.missingIds ?? []);
-      for (const segment of batch) {
-        const translatedText = response.translations[segment.id];
-        if (translatedText) {
-          segment.translatedText = translatedText;
-          segment.translationError = undefined;
-        } else {
-          segment.translationError = "本段未返回，点击继续翻译重试";
-          if (!missingIds.has(segment.id)) missingIds.add(segment.id);
-        }
-        refreshSegment(segment);
-      }
-      incompleteCount += missingIds.size;
-      await saveTranslationCache();
-      progressBar.style.width = `${Math.round(((index + 1) / batches.length) * 100)}%`;
-    }
-    if (incompleteCount > 0) {
-      setStatus(`已保留成功结果，${incompleteCount} 段待重试`, false);
-      showToast(`${incompleteCount} 个字幕段未返回，可点击继续翻译`);
-    } else {
-      setStatus("双语轨道已完成", false);
-      showToast("翻译完成，缓存已保存在本地");
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    setStatus("翻译已暂停", false);
-    showToast(message);
-  } finally {
-    translationRunning = false;
-    statusDot.classList.remove("is-working");
-    progressTrack.hidden = true;
-    translateButton.disabled = false;
-    updateTranslationButton();
-  }
-}
-
-function refreshSegment(segment: TranscriptSegment): void {
-  const row = transcript.querySelector<HTMLElement>(
-    `[data-segment-id="${CSS.escape(segment.id)}"]`,
-  );
-  const target = row?.querySelector<HTMLElement>(".lane-copy.target");
-  if (target) updateTargetNode(target, segment);
-}
-
-async function restoreTranslationCache(): Promise<void> {
+async function restoreSummaryCache(): Promise<void> {
   if (!currentVideo) return;
-  const key = translationCacheKey();
+  const key = summaryCacheKey();
   const stored = await chrome.storage.local.get(key);
-  const cache = stored[key] as TranslationCache | undefined;
+  const cache = stored[key] as SummaryCache | undefined;
   if (
-    cache?.version !== 1 ||
+    cache?.version !== 2 ||
+    cache.promptVersion !== SUMMARY_PROMPT_VERSION ||
     cache.videoId !== currentVideo.videoId ||
     cache.targetLanguage !== settings.targetLanguage ||
-    cache.providerFingerprint !== providerFingerprint(settings)
+    cache.providerFingerprint !== providerFingerprint(settings) ||
+    cache.sourceFingerprint !== summarySourceFingerprint() ||
+    !Array.isArray(cache.chapters)
   ) {
     return;
   }
-  for (const segment of currentVideo.segments) {
-    segment.translatedText = cache.translations[segment.id] || undefined;
+
+  const outline: ChapterOutline[] = [];
+  for (const cached of cache.chapters) {
+    const segment = currentVideo.segments.find((item) => item.startMs === cached.startMs);
+    if (!segment || !isSummaryContent(cached.content)) continue;
+    outline.push({ startSegmentId: segment.id, ...cached.content });
   }
+  if (outline[0]?.startSegmentId !== currentVideo.segments[0]?.id) return;
+  currentChapters = makeChapterBlocks(currentVideo.segments, outline);
 }
 
-async function saveTranslationCache(): Promise<void> {
+async function saveSummaryCache(): Promise<void> {
   if (!currentVideo) return;
-  const translations: Record<string, string> = {};
-  for (const segment of currentVideo.segments) {
-    if (segment.translatedText) translations[segment.id] = segment.translatedText;
-  }
-  const cache: TranslationCache = {
-    version: 1,
+  const cache: SummaryCache = {
+    version: 2,
+    promptVersion: SUMMARY_PROMPT_VERSION,
     videoId: currentVideo.videoId,
     targetLanguage: settings.targetLanguage,
     providerFingerprint: providerFingerprint(settings),
-    translations,
+    sourceFingerprint: summarySourceFingerprint(),
+    chapters: currentChapters.map(({ startMs, content }) => ({ startMs, content })),
     updatedAt: Date.now(),
   };
-  await chrome.storage.local.set({ [translationCacheKey()]: cache });
+  await chrome.storage.local.set({ [summaryCacheKey()]: cache });
 }
 
-function translationCacheKey(): string {
-  if (!currentVideo) return "video_parallel_cache_empty";
-  const fingerprint = `${currentVideo.videoId}|${settings.targetLanguage}|${providerFingerprint(settings)}`;
-  return `video_parallel_cache_${currentVideo.videoId}_${hashString(fingerprint)}`;
+function summaryCacheKey(): string {
+  if (!currentVideo) return "video_parallel_summary_empty";
+  const fingerprint = `${currentVideo.videoId}|${settings.targetLanguage}|${providerFingerprint(settings)}|${SUMMARY_PROMPT_VERSION}`;
+  return `video_parallel_summary_${currentVideo.videoId}_${hashString(fingerprint)}`;
 }
 
-function updateTranslationButton(): void {
-  const total = currentVideo?.segments.length ?? 0;
-  const translated = currentVideo?.segments.filter((segment) => segment.translatedText).length ?? 0;
-  translateButton.textContent =
-    total > 0 && translated === total ? "翻译完成" : translated > 0 ? "继续翻译" : "开始翻译";
+function summarySourceFingerprint(): string {
+  return hashString(
+    (currentVideo?.segments ?? [])
+      .map((segment) => `${segment.id}|${segment.startMs}|${segment.text}`)
+      .join("\n"),
+  );
+}
+
+function updateProcessButton(): void {
+  processButton.textContent = currentChapters.length ? "重新处理" : "开始处理";
+}
+
+function ensureProviderConfigured(): boolean {
+  if (settings.model && (settings.apiKey || settings.provider === "local")) return true;
+  showToast("先配置 AI Provider 和 API Key");
+  openSettings();
+  return false;
 }
 
 function startPlaybackTracking(): void {
@@ -307,40 +336,30 @@ function startPlaybackTracking(): void {
 function stopPlaybackTracking(): void {
   if (playbackTimer !== undefined) window.clearInterval(playbackTimer);
   playbackTimer = undefined;
-  activeSegmentId = "";
+  activeChapterId = "";
 }
 
 async function syncPlayback(): Promise<void> {
-  if (!currentVideo || document.hidden) return;
+  if (!currentVideo || currentChapters.length === 0 || document.hidden) return;
   const response = await sendMessage({ type: "GET_PLAYBACK_TIME", tabId: currentVideo.tabId });
   if (!response.ok || typeof response.seconds !== "number") return;
-  const segment = activeSegmentAt(response.seconds * 1000);
-  if (!segment || segment.id === activeSegmentId) return;
+  const chapter = activeChapterAt(response.seconds * 1000);
+  if (!chapter || chapter.id === activeChapterId) return;
 
-  transcript.querySelector(".pair-row.is-active")?.classList.remove("is-active");
-  const row = transcript.querySelector<HTMLElement>(
-    `[data-segment-id="${CSS.escape(segment.id)}"]`,
+  summaryList.querySelector(".summary-card.is-active")?.classList.remove("is-active");
+  const card = summaryList.querySelector<HTMLElement>(
+    `[data-chapter-id="${CSS.escape(chapter.id)}"]`,
   );
-  row?.classList.add("is-active");
-  activeSegmentId = segment.id;
-  if (settings.autoFollow) row?.scrollIntoView({ behavior: "smooth", block: "center" });
+  card?.classList.add("is-active");
+  activeChapterId = chapter.id;
+  if (settings.autoFollow) card?.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
-function activeSegmentAt(timeMs: number): TranscriptSegment | null {
-  const segments = currentVideo?.segments ?? [];
-  let low = 0;
-  let high = segments.length - 1;
-  let match: TranscriptSegment | null = null;
-  while (low <= high) {
-    const middle = Math.floor((low + high) / 2);
-    const segment = segments[middle];
-    if (!segment) break;
-    if (segment.startMs <= timeMs) {
-      match = segment;
-      low = middle + 1;
-    } else {
-      high = middle - 1;
-    }
+function activeChapterAt(timeMs: number): SummaryBlock | null {
+  let match: SummaryBlock | null = null;
+  for (const chapter of currentChapters) {
+    if (chapter.startMs > timeMs) break;
+    match = chapter;
   }
   return match;
 }
@@ -353,50 +372,53 @@ async function seekTo(seconds: number): Promise<void> {
 
 function toggleFollow(): void {
   settings = { ...settings, autoFollow: !settings.autoFollow };
-  followButton.setAttribute("aria-pressed", String(settings.autoFollow));
-  followButton.textContent = settings.autoFollow ? "跟随播放" : "自由滚动";
+  updateLanguageLabels();
   void chrome.storage.local.set({ [SETTINGS_KEY]: settings });
 }
 
 async function copyMarkdown(): Promise<void> {
   const markdown = currentMarkdown();
-  if (!markdown) return;
+  if (!markdown) {
+    showToast("请先生成章节概要");
+    return;
+  }
   await navigator.clipboard.writeText(markdown);
-  showToast("对照稿已复制");
+  showToast("内容概要已复制");
 }
 
 function exportMarkdown(): void {
   const markdown = currentMarkdown();
-  if (!markdown || !currentVideo) return;
+  if (!markdown || !currentVideo) {
+    showToast("请先生成章节概要");
+    return;
+  }
   const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = `${sanitizeFilename(currentVideo.title)}-parallel.md`;
+  anchor.download = `${sanitizeFilename(currentVideo.title)}-summary.md`;
   anchor.click();
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   showToast("Markdown 已导出");
 }
 
 function currentMarkdown(): string | null {
-  if (!currentVideo) return null;
-  return buildParallelMarkdown(
+  if (!currentVideo || currentChapters.length === 0) return null;
+  return buildSummaryMarkdown(
     {
       title: currentVideo.title,
       channel: currentVideo.channel,
       url: `https://www.youtube.com/watch?v=${currentVideo.videoId}`,
       sourceLanguage: currentVideo.sourceLanguage,
-      targetLanguage: TARGET_LANGUAGE_LABELS[settings.targetLanguage] ?? settings.targetLanguage,
+      summaryLanguage: TARGET_LANGUAGE_LABELS[settings.targetLanguage] ?? settings.targetLanguage,
     },
-    currentVideo.segments,
+    currentChapters,
   );
 }
 
 function updateLanguageLabels(): void {
   const target = TARGET_LANGUAGE_LABELS[settings.targetLanguage] ?? settings.targetLanguage;
-  const source = currentVideo?.sourceLanguage?.toUpperCase() ?? "AUTO";
-  languageChip.textContent = `${source} → ${target}`;
-  targetLaneLabel.textContent = target;
+  languageChip.textContent = `${target}概要`;
   followButton.setAttribute("aria-pressed", String(settings.autoFollow));
   followButton.textContent = settings.autoFollow ? "跟随播放" : "自由滚动";
 }
@@ -415,7 +437,7 @@ function showState(state: "loading" | "empty" | "workspace"): void {
 
 function openSettings(): void {
   if (!hasExtensionRuntime) {
-    showToast("扩展安装后可打开 Provider 设置");
+    showToast("扩展安装后可打开模型设置");
     return;
   }
   void sendMessage({ type: "OPEN_OPTIONS" });
@@ -427,7 +449,7 @@ function showToast(message: string): void {
   toast.hidden = false;
   toastTimer = window.setTimeout(() => {
     toast.hidden = true;
-  }, 3000);
+  }, 3200);
 }
 
 function hashString(input: string): string {
@@ -439,6 +461,19 @@ function hashString(input: string): string {
   return (hash >>> 0).toString(36);
 }
 
+function isSummaryContent(value: unknown): value is SummaryContent {
+  if (!value || typeof value !== "object") return false;
+  const content = value as Partial<SummaryContent>;
+  return (
+    typeof content.title === "string" &&
+    Boolean(content.title.trim()) &&
+    typeof content.summary === "string" &&
+    Boolean(content.summary.trim()) &&
+    Array.isArray(content.keyPoints) &&
+    content.keyPoints.every((point) => typeof point === "string")
+  );
+}
+
 async function sendMessage(message: Record<string, unknown>): Promise<RuntimeResponse> {
   return chrome.runtime.sendMessage(message) as Promise<RuntimeResponse>;
 }
@@ -447,43 +482,34 @@ function renderLocalPreview(): void {
   currentVideo = {
     tabId: 1,
     videoId: "preview",
-    title: "How parallel reading changes the way we learn",
+    title: "How context becomes infrastructure for AI agents",
     channel: "video-parallel preview",
-    durationSeconds: 188,
+    durationSeconds: 302,
     sourceLanguage: "en",
     segments: [
-      {
-        id: "s0-0",
-        startMs: 0,
-        durationMs: 11_000,
-        text: "Most video tools ask you to leave the context before you can understand it.",
-        translatedText: "多数视频工具会让你先离开原本的语境，才能进一步理解内容。",
-      },
-      {
-        id: "s1-12000",
-        startMs: 12_000,
-        durationMs: 15_000,
-        text: "A parallel view keeps the speaker, the source language, and your notes on one timeline.",
-        translatedText: "对照视图把讲述者、源语言与个人笔记保留在同一条时间线上。",
-      },
-      {
-        id: "s2-29000",
-        startMs: 29_000,
-        durationMs: 17_000,
-        text: "You can glance across for meaning, then return to the exact words without losing your place.",
-        translatedText: "你可以横向扫一眼译文，再回到准确原句，同时不会丢失播放位置。",
-      },
-      {
-        id: "s3-48000",
-        startMs: 48_000,
-        durationMs: 18_000,
-        text: "The timecode is not metadata here. It is the spine that keeps both reading lanes aligned.",
-        translatedText: "时间码在这里不是附属信息，而是让两条阅读轨保持对齐的脊柱。",
-      },
+      { id: "s0", startMs: 0, durationMs: 65_000, text: "Agents need live context." },
+      { id: "s1", startMs: 65_000, durationMs: 88_000, text: "Retrieval alone is not enough." },
+      { id: "s2", startMs: 153_000, durationMs: 81_000, text: "Context becomes a service." },
+      { id: "s3", startMs: 234_000, durationMs: 68_000, text: "Teams need clear boundaries." },
     ],
   };
+  currentChapters = makeChapterBlocks(currentVideo.segments, [
+    {
+      startSegmentId: "s0",
+      title: "智能体真正缺少的是实时上下文",
+      summary:
+        "开场把问题从模型能力转向上下文供给。智能体需要持续获得最新、可验证且与任务相关的信息，单次检索无法覆盖这个过程。",
+      keyPoints: ["上下文质量直接限制智能体的行动质量", "静态检索难以跟上持续变化的任务状态"],
+    },
+    {
+      startSegmentId: "s2",
+      title: "把上下文作为一项基础服务",
+      summary:
+        "后半段提出 Context-as-a-Service：由独立层负责获取、清洗和交付上下文。这样应用团队可以专注于任务逻辑，同时保留权限与来源边界。",
+      keyPoints: ["上下文层负责新鲜度、来源和访问控制", "产品逻辑与数据获取职责由此解耦"],
+    },
+  ]);
   renderVideo();
-  transcript.querySelector(".pair-row")?.classList.add("is-active");
   showState("workspace");
 }
 
