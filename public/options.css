@@ -196,6 +196,15 @@ select:disabled {
 
 .wide-field { grid-column: 1 / -1; }
 
+.model-picker {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.9fr) minmax(220px, 1.1fr);
+  gap: 8px;
+}
+
+.model-picker select { font-family: var(--mono); font-size: 12px; }
+.model-picker input { font-family: var(--mono); font-size: 12px; }
+
 .provider-route {
   display: grid;
   grid-template-columns: auto minmax(18px, 1fr) auto minmax(18px, 1fr) auto;
@@ -357,6 +366,7 @@ select:disabled {
   .section-index { display: none; }
   .form-grid { grid-column: 1; grid-template-columns: 1fr; }
   .wide-field { grid-column: 1; }
+  .model-picker { grid-template-columns: 1fr; }
   .provider-route {
     grid-template-columns: auto 1fr auto;
   }

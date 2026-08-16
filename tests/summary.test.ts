@@ -15,8 +15,20 @@ test("chapter prompt gives the complete transcript to the model and rejects inte
   assert.match(messages[0]?.content ?? "", /complete YouTube transcript/);
   assert.match(messages[0]?.content ?? "", /Do not split at equal time intervals/);
   assert.match(messages[0]?.content ?? "", /3-5 key takeaways/);
+  assert.match(messages[0]?.content ?? "", /所有面向用户的文本都必须使用简体中文/);
+  assert.match(messages[0]?.content ?? "", /Every user-facing JSON string value/);
+  assert.match(messages[0]?.content ?? "", /overview\.summary/);
   assert.match(messages[0]?.content ?? "", /first chapter must start at segment id s0/i);
+  assert.match(messages[1]?.content ?? "", /"outputLanguage":"简体中文"/);
   assert.match(messages[1]?.content ?? "", /A new argument begins/);
+});
+
+test("summary prompt repeats the selected language in its native wording", () => {
+  const messages = buildSummaryMessages(segments, "fr", "A useful video");
+
+  assert.match(messages[0]?.content ?? "", /required output language is Français/);
+  assert.match(messages[0]?.content ?? "", /tout le texte destiné à l’utilisateur en français/);
+  assert.match(messages[1]?.content ?? "", /"outputLanguage":"Français"/);
 });
 
 test("parseSummaryResponse accepts a full overview and restores chapter chronology", () => {

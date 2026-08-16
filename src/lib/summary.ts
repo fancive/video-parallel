@@ -1,7 +1,7 @@
 import { TARGET_LANGUAGE_LABELS } from "./settings";
 import type { ChapterOutline, SummaryBlock, TranscriptSegment, VideoOverview } from "./types";
 
-export const SUMMARY_PROMPT_VERSION = 3;
+export const SUMMARY_PROMPT_VERSION = 4;
 export const MAX_CHAPTER_TRANSCRIPT_SEGMENTS = 2000;
 export const MAX_CHAPTER_TRANSCRIPT_CHARACTERS = 100_000;
 export const MAX_CHAPTERS = 16;
@@ -17,12 +17,18 @@ export function buildSummaryMessages(
   videoTitle: string,
 ): Array<{ role: "system" | "user"; content: string }> {
   const language = TARGET_LANGUAGE_LABELS[targetLanguage] ?? targetLanguage;
+  const languageInstruction =
+    TARGET_LANGUAGE_INSTRUCTIONS[targetLanguage] ??
+    `Write every user-facing string value in ${language}.`;
   const firstId = segments[0]?.id ?? "";
   return [
     {
       role: "system",
       content: [
-        `Analyze the complete YouTube transcript and write the result in ${language}.`,
+        `Analyze the complete YouTube transcript. The required output language is ${language}.`,
+        languageInstruction,
+        `Every user-facing JSON string value must be written in ${language}, including overview.summary, every overview.keyPoints item, and every chapter title, summary, and keyPoints item.`,
+        "Do not switch back to the transcript language or the language used in these instructions. Proper names, product names, code, and exact quotations may remain unchanged when necessary.",
         "Choose chapter boundaries from real topic, argument, speaker-intent, or narrative transitions.",
         "Do not split at equal time intervals and do not create a new chapter merely because time has passed.",
         "Use fewer, broader chapters when one idea continues; use a boundary only when the viewer benefits from a new heading.",
@@ -31,18 +37,30 @@ export function buildSummaryMessages(
         "Before the chapters, write a 2-3 sentence overview of the complete video and 3-5 key takeaways that capture its main claims, conclusions, and important caveats.",
         "For each chapter, write a specific title, a concise 2-3 sentence summary, and 2-4 evidence-based key points.",
         "Use only claims supported by the transcript. Preserve names, numbers, caveats, and uncertainty.",
-        'Return only JSON with this shape: {"overview":{"summary":"complete-video summary","keyPoints":["takeaway"]},"chapters":[{"startSegmentId":"unchanged-id","title":"title","summary":"summary","keyPoints":["point"]}]}.',
+        'Return only JSON with this shape: {"overview":{"summary":"…","keyPoints":["…"]},"chapters":[{"startSegmentId":"unchanged-id","title":"…","summary":"…","keyPoints":["…"]}]}. Property names and startSegmentId stay unchanged; every ellipsis must be replaced with text in the required output language.',
       ].join("\n"),
     },
     {
       role: "user",
       content: JSON.stringify({
+        outputLanguage: language,
         videoTitle,
         transcript: segments.map(({ id, startMs, text }) => ({ id, startMs, text })),
       }),
     },
   ];
 }
+
+const TARGET_LANGUAGE_INSTRUCTIONS: Record<string, string> = {
+  "zh-CN": "所有面向用户的文本都必须使用简体中文。",
+  "zh-TW": "所有面向使用者的文字都必須使用繁體中文。",
+  ja: "ユーザー向けのテキストは、すべて日本語で記述してください。",
+  ko: "사용자에게 표시되는 모든 텍스트는 한국어로 작성하세요.",
+  en: "Write all user-facing text in English.",
+  fr: "Rédigez tout le texte destiné à l’utilisateur en français.",
+  de: "Verfassen Sie alle für Benutzer sichtbaren Texte auf Deutsch.",
+  es: "Escribe en español todo el texto visible para el usuario.",
+};
 
 export function parseSummaryResponse(
   responseText: string,

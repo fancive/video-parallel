@@ -45,9 +45,17 @@
               </select>
             </label>
             <label class="wide-field">
-              <span>Model <small>可选择，也可直接输入模型 ID</small></span>
-              <input id="model" name="model" list="modelOptions" autocomplete="off" spellcheck="false" />
-              <datalist id="modelOptions"></datalist>
+              <span>Model <small>从列表选择，或手动输入模型 ID</small></span>
+              <div class="model-picker">
+                <select id="modelSelect" aria-label="模型列表"></select>
+                <input
+                  id="model"
+                  name="model"
+                  autocomplete="off"
+                  spellcheck="false"
+                  placeholder="手动输入 Model ID"
+                />
+              </div>
             </label>
             <label class="wide-field">
               <span>Base URL</span>

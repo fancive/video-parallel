@@ -150,7 +150,7 @@ npm run check
 npm run package
 ```
 
-`npm run package` creates `release/video-parallel-v0.1.14.zip`.
+`npm run package` creates `release/video-parallel-v0.1.15.zip`.
 
 ## Roadmap
 

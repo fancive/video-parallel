@@ -10,7 +10,9 @@ test("settings expose protocol routing, model discovery, testing, and manual mod
   assert.match(html, /value="openai-compatible"/);
   assert.match(html, /value="anthropic"/);
   assert.match(html, /value="google"/);
-  assert.match(html, /id="model"[^>]+list="modelOptions"/);
+  assert.match(html, /id="modelSelect"/);
+  assert.match(html, /id="model"/);
+  assert.doesNotMatch(html, /<datalist/);
   assert.match(html, /id="discoverModelsButton"/);
   assert.match(html, /id="testProviderButton"/);
   assert.match(html, /role="status" aria-live="polite"/);

@@ -24,8 +24,8 @@ interface RuntimeResponse {
 const form = element<HTMLFormElement>("settingsForm");
 const providerInput = element<HTMLSelectElement>("provider");
 const protocolInput = element<HTMLSelectElement>("protocol");
+const modelSelect = element<HTMLSelectElement>("modelSelect");
 const modelInput = element<HTMLInputElement>("model");
-const modelOptions = element<HTMLDataListElement>("modelOptions");
 const baseUrlInput = element<HTMLInputElement>("baseUrl");
 const apiKeyInput = element<HTMLInputElement>("apiKey");
 const apiKeyLabel = element<HTMLElement>("apiKeyLabel");
@@ -66,6 +66,14 @@ protocolInput.addEventListener("change", () => {
   updateProviderPresentation();
   markDirty();
 });
+
+modelSelect.addEventListener("change", () => {
+  if (!modelSelect.value) return;
+  modelInput.value = modelSelect.value;
+  markDirty();
+});
+
+modelInput.addEventListener("input", syncModelSelection);
 
 discoverModelsButton.addEventListener(
   "click",
@@ -186,9 +194,15 @@ async function runProviderAction(type: "LIST_PROVIDER_MODELS" | "TEST_PROVIDER")
       const models = response.models ?? [];
       if (models.length === 0) throw new Error("Provider 没有返回模型。");
       populateModelOptions(models, modelInput.value);
-      if (!modelInput.value.trim()) modelInput.value = models[0] ?? "";
+      if (!modelInput.value.trim()) {
+        modelInput.value = models[0] ?? "";
+        syncModelSelection();
+      }
       updateProviderPresentation(models.length);
-      setProviderStatus(`已读取 ${models.length} 个模型；当前选择不会被自动覆盖。`, "success");
+      setProviderStatus(
+        `已读取 ${models.length} 个模型；请从 Model 下拉框选择，或继续手动输入。`,
+        "success",
+      );
     } else {
       setProviderStatus(response.message || "连接测试通过。", "success");
     }
@@ -223,13 +237,29 @@ async function ensureOriginPermission(settings: AppSettings): Promise<void> {
 }
 
 function populateModelOptions(models: readonly string[], selectedModel: string): void {
-  modelOptions.replaceChildren();
-  const values = [...new Set([selectedModel.trim(), ...models].filter(Boolean))];
+  modelSelect.replaceChildren();
+  const values = [...new Set(models.map((model) => model.trim()).filter(Boolean))];
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = values.length
+    ? `选择模型（${values.length} 个）`
+    : "暂无模型建议，请手动输入";
+  modelSelect.appendChild(placeholder);
   for (const model of values) {
     const option = document.createElement("option");
     option.value = model;
-    modelOptions.appendChild(option);
+    option.textContent = model;
+    modelSelect.appendChild(option);
   }
+  modelSelect.disabled = values.length === 0;
+  modelSelect.value = values.includes(selectedModel.trim()) ? selectedModel.trim() : "";
+}
+
+function syncModelSelection(): void {
+  const model = modelInput.value.trim();
+  modelSelect.value = Array.from(modelSelect.options).some((option) => option.value === model)
+    ? model
+    : "";
 }
 
 function setProviderToolsDisabled(disabled: boolean): void {
