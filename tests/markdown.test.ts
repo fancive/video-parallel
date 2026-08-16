@@ -11,6 +11,10 @@ test("buildSummaryMarkdown exports chapter summaries without sentence translatio
       sourceLanguage: "en",
       summaryLanguage: "简体中文",
     },
+    {
+      summary: "这是整段视频的总结。",
+      keyPoints: ["总重点一", "总重点二"],
+    },
     [
       {
         id: "c0",
@@ -25,7 +29,8 @@ test("buildSummaryMarkdown exports chapter summaries without sentence translatio
     ],
   );
   assert.match(output, /^# A useful video/m);
-  assert.match(output, /## 内容概要\n\n### 00:42 · 核心观点/);
+  assert.match(output, /## 全文要点\n\n这是整段视频的总结。\n\n- 总重点一\n- 总重点二/);
+  assert.match(output, /## 章节概要\n\n### 00:42 · 核心观点/);
   assert.match(output, /这是章节摘要。\n\n- 重点一\n- 重点二/);
   assert.doesNotMatch(output, /逐句对照|Not translated/);
 });

@@ -1,7 +1,24 @@
-export type ProviderId = "deepseek" | "openai" | "openrouter" | "local" | "custom";
+export type ProviderId =
+  | "deepseek"
+  | "openai"
+  | "openrouter"
+  | "anthropic"
+  | "google"
+  | "groq"
+  | "mistral"
+  | "xai"
+  | "together"
+  | "cerebras"
+  | "local"
+  | "custom";
+
+export type ProviderProtocol = "openai-compatible" | "anthropic" | "google";
+
+export type ProviderCategory = "direct" | "gateway" | "local";
 
 export interface AppSettings {
   provider: ProviderId;
+  protocol: ProviderProtocol;
   baseUrl: string;
   model: string;
   apiKey: string;
@@ -37,12 +54,22 @@ export interface VideoContext {
 export interface ProviderPreset {
   id: ProviderId;
   label: string;
+  category: ProviderCategory;
+  protocol: ProviderProtocol;
   baseUrl: string;
   model: string;
+  models: readonly string[];
+  apiKeyLabel: string;
+  jsonMode: boolean;
 }
 
 export interface SummaryContent {
   title: string;
+  summary: string;
+  keyPoints: string[];
+}
+
+export interface VideoOverview {
   summary: string;
   keyPoints: string[];
 }
@@ -59,12 +86,13 @@ export interface SummaryBlock {
 }
 
 export interface SummaryCache {
-  version: 2;
+  version: 3;
   promptVersion: number;
   videoId: string;
   targetLanguage: string;
   providerFingerprint: string;
   sourceFingerprint: string;
+  overview: VideoOverview;
   chapters: Array<{ startMs: number; content: SummaryContent }>;
   updatedAt: number;
 }

@@ -1,36 +1,13 @@
-import type { AppSettings, ProviderId, ProviderPreset } from "./types";
+import { PROVIDER_PRESETS, providerPreset } from "./provider-catalog";
+import type { AppSettings, ProviderId, ProviderProtocol } from "./types";
+
+export { PROVIDER_PRESETS } from "./provider-catalog";
 
 export const SETTINGS_KEY = "video_parallel_settings";
 
-export const PROVIDER_PRESETS: Record<Exclude<ProviderId, "custom">, ProviderPreset> = {
-  deepseek: {
-    id: "deepseek",
-    label: "DeepSeek",
-    baseUrl: "https://api.deepseek.com",
-    model: "deepseek-chat",
-  },
-  openai: {
-    id: "openai",
-    label: "OpenAI",
-    baseUrl: "https://api.openai.com/v1",
-    model: "gpt-5-mini",
-  },
-  openrouter: {
-    id: "openrouter",
-    label: "OpenRouter",
-    baseUrl: "https://openrouter.ai/api/v1",
-    model: "openai/gpt-5-mini",
-  },
-  local: {
-    id: "local",
-    label: "Local / Ollama",
-    baseUrl: "http://localhost:11434/v1",
-    model: "qwen3:8b",
-  },
-};
-
 export const DEFAULT_SETTINGS: AppSettings = Object.freeze({
   provider: "deepseek",
+  protocol: PROVIDER_PRESETS.deepseek.protocol,
   baseUrl: PROVIDER_PRESETS.deepseek.baseUrl,
   model: PROVIDER_PRESETS.deepseek.model,
   apiKey: "",
@@ -38,18 +15,29 @@ export const DEFAULT_SETTINGS: AppSettings = Object.freeze({
   autoFollow: true,
 });
 
-const PROVIDER_IDS = new Set<ProviderId>(["deepseek", "openai", "openrouter", "local", "custom"]);
+const PROVIDER_IDS = new Set<ProviderId>([
+  ...(Object.keys(PROVIDER_PRESETS) as Array<Exclude<ProviderId, "custom">>),
+  "custom",
+]);
+const PROVIDER_PROTOCOLS = new Set<ProviderProtocol>(["openai-compatible", "anthropic", "google"]);
 
 export function normalizeSettings(input: unknown): AppSettings {
   const value = input && typeof input === "object" ? (input as Partial<AppSettings>) : {};
   const provider = PROVIDER_IDS.has(value.provider as ProviderId)
     ? (value.provider as ProviderId)
     : DEFAULT_SETTINGS.provider;
+  const preset = providerPreset(provider);
+  const protocol = preset
+    ? preset.protocol
+    : PROVIDER_PROTOCOLS.has(value.protocol as ProviderProtocol)
+      ? (value.protocol as ProviderProtocol)
+      : DEFAULT_SETTINGS.protocol;
 
   return {
     provider,
-    baseUrl: normalizeBaseUrl(value.baseUrl ?? DEFAULT_SETTINGS.baseUrl),
-    model: String(value.model ?? DEFAULT_SETTINGS.model).trim(),
+    protocol,
+    baseUrl: normalizeBaseUrl(value.baseUrl ?? preset?.baseUrl ?? DEFAULT_SETTINGS.baseUrl),
+    model: String(value.model ?? preset?.model ?? DEFAULT_SETTINGS.model).trim(),
     apiKey: String(value.apiKey ?? "").trim(),
     targetLanguage: String(value.targetLanguage ?? DEFAULT_SETTINGS.targetLanguage).trim(),
     autoFollow: value.autoFollow !== false,
@@ -81,7 +69,20 @@ export function providerOriginPattern(baseUrl: string): string {
 }
 
 export function providerFingerprint(settings: AppSettings): string {
-  return [settings.provider, normalizeBaseUrl(settings.baseUrl), settings.model].join("|");
+  return [
+    settings.provider,
+    settings.protocol,
+    normalizeBaseUrl(settings.baseUrl),
+    settings.model,
+  ].join("|");
+}
+
+export function providerRequiresApiKey(settings: AppSettings): boolean {
+  return settings.provider !== "local" && !isLocalHostname(new URL(settings.baseUrl).hostname);
+}
+
+export function providerSupportsJsonMode(settings: AppSettings): boolean {
+  return providerPreset(settings.provider)?.jsonMode ?? false;
 }
 
 export function isLocalHostname(hostname: string): boolean {

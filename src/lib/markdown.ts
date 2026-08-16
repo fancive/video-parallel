@@ -1,5 +1,5 @@
 import { formatTimecode } from "./transcript";
-import type { SummaryBlock } from "./types";
+import type { SummaryBlock, VideoOverview } from "./types";
 
 interface MarkdownVideo {
   title: string;
@@ -9,7 +9,11 @@ interface MarkdownVideo {
   summaryLanguage: string;
 }
 
-export function buildSummaryMarkdown(video: MarkdownVideo, chapters: SummaryBlock[]): string {
+export function buildSummaryMarkdown(
+  video: MarkdownVideo,
+  overview: VideoOverview,
+  chapters: SummaryBlock[],
+): string {
   const lines = [
     `# ${video.title}`,
     "",
@@ -19,9 +23,14 @@ export function buildSummaryMarkdown(video: MarkdownVideo, chapters: SummaryBloc
     `- Summary language: ${video.summaryLanguage}`,
     "- Exported by video-parallel",
     "",
-    "## 内容概要",
+    "## 全文要点",
+    "",
+    overview.summary,
     "",
   ];
+
+  for (const point of overview.keyPoints) lines.push(`- ${point}`);
+  lines.push("", "## 章节概要", "");
 
   for (const chapter of chapters) {
     lines.push(

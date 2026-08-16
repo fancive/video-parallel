@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildChapterMessages, makeChapterBlocks, parseChapterResponse } from "../src/lib/summary";
+import { buildSummaryMessages, makeChapterBlocks, parseSummaryResponse } from "../src/lib/summary";
 import type { TranscriptSegment } from "../src/lib/types";
 
 const segments: TranscriptSegment[] = [
@@ -11,17 +11,18 @@ const segments: TranscriptSegment[] = [
 ];
 
 test("chapter prompt gives the complete transcript to the model and rejects interval splitting", () => {
-  const messages = buildChapterMessages(segments, "zh-CN", "A useful video");
+  const messages = buildSummaryMessages(segments, "zh-CN", "A useful video");
   assert.match(messages[0]?.content ?? "", /complete YouTube transcript/);
   assert.match(messages[0]?.content ?? "", /Do not split at equal time intervals/);
+  assert.match(messages[0]?.content ?? "", /3-5 key takeaways/);
   assert.match(messages[0]?.content ?? "", /first chapter must start at segment id s0/i);
   assert.match(messages[1]?.content ?? "", /A new argument begins/);
 });
 
-test("parseChapterResponse accepts stable model-selected boundaries and restores chronology", () => {
-  const outline = parseChapterResponse(
+test("parseSummaryResponse accepts a full overview and restores chapter chronology", () => {
+  const result = parseSummaryResponse(
     `Result:\n\`\`\`json
-    {"chapters":[
+    {"overview":{"summary":"全文结论。","keyPoints":["总重点一","总重点二"]},"chapters":[
       {"startSegmentId":"s2","title":"第二章","summary":"新论点。","keyPoints":["证据二"]},
       {"startSegmentId":"s0","title":"第一章","summary":"开场论点。","keyPoints":["证据一"]},
     ],}
@@ -29,19 +30,31 @@ test("parseChapterResponse accepts stable model-selected boundaries and restores
     segments,
   );
   assert.deepEqual(
-    outline.map((chapter) => chapter.startSegmentId),
+    result.chapters.map((chapter) => chapter.startSegmentId),
     ["s0", "s2"],
   );
+  assert.deepEqual(result.overview.keyPoints, ["总重点一", "总重点二"]);
 });
 
-test("parseChapterResponse requires coverage from the first transcript segment", () => {
+test("parseSummaryResponse requires coverage from the first transcript segment", () => {
   assert.throws(
     () =>
-      parseChapterResponse(
-        '{"chapters":[{"startSegmentId":"s2","title":"第二章","summary":"摘要","keyPoints":[]}]}',
+      parseSummaryResponse(
+        '{"overview":{"summary":"全文摘要","keyPoints":["重点"]},"chapters":[{"startSegmentId":"s2","title":"第二章","summary":"摘要","keyPoints":[]}]}',
         segments,
       ),
     /没有覆盖视频开头/,
+  );
+});
+
+test("parseSummaryResponse rejects chapter-only responses", () => {
+  assert.throws(
+    () =>
+      parseSummaryResponse(
+        '{"chapters":[{"startSegmentId":"s0","title":"第一章","summary":"摘要","keyPoints":[]}]}',
+        segments,
+      ),
+    /未返回全文要点/,
   );
 });
 

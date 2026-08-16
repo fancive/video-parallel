@@ -4,7 +4,7 @@
 
 ### Watch the video. Read the structure.
 
-Turn native YouTube captions into semantic AI chapter summaries that stay in sync with playback.
+Turn native YouTube captions into a full-video overview and semantic AI chapter summaries that stay in sync with playback.
 
 [![Chrome 116+](https://img.shields.io/badge/Chrome-116%2B-2f59ff?style=flat-square&logo=googlechrome&logoColor=white)](#requirements) [![Manifest V3](https://img.shields.io/badge/Manifest-V3-15212b?style=flat-square)](public/manifest.json) [![Local-first](https://img.shields.io/badge/data-local--first-008f7c?style=flat-square)](PRIVACY.md) [![MIT License](https://img.shields.io/github/license/fancive/video-parallel?style=flat-square)](LICENSE)
 
@@ -13,16 +13,16 @@ Turn native YouTube captions into semantic AI chapter summaries that stay in syn
 </div>
 
 <p align="center">
-  <img src="docs/assets/side-panel.jpg" width="720" alt="video-parallel Side Panel showing semantic chapter summaries with timestamps and key points">
+  <img src="docs/assets/side-panel.jpg" width="720" alt="video-parallel Side Panel showing full-video takeaways followed by semantic chapter summaries">
 </p>
 
 <p align="center"><sub>The real Side Panel UI, rendered with the bundled preview data.</sub></p>
 
 ## Why video-parallel?
 
-| Semantic chapters | Playback-aware reading | Bring your own provider |
+| Overview + semantic chapters | Playback-aware reading | Bring your own provider |
 | --- | --- | --- |
-| The model follows topic, argument, and narrative transitions instead of cutting at fixed intervals. | The active chapter follows playback, and every timestamp is a seek target. | Use DeepSeek, OpenAI, OpenRouter, Ollama, or any compatible endpoint without a developer-operated backend. |
+| Start with the video's main conclusions, then follow topic, argument, and narrative transitions instead of fixed intervals. | The active chapter follows playback, and every timestamp is a seek target. | Use OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter, Ollama, or another supported endpoint without a developer-operated backend. |
 
 The extension reads caption tracks already available on YouTube. It does not upload audio or depend
 on a transcript proxy. The complete transcript is sent to your configured provider only when you
@@ -42,7 +42,8 @@ Then:
 1. Open `chrome://extensions`.
 2. Enable **Developer mode**.
 3. Click **Load unpacked** and select the generated `dist/` directory.
-4. Open the extension settings and configure a Provider, Base URL, Model, and API Key.
+4. Open the extension settings, choose a Provider, and add its API Key. You can fetch the models
+   available to your account, test the connection, or enter a model ID manually.
 5. Visit a standard YouTube `watch` page with captions and click **Summary** in the video action bar.
 
 For a local Ollama server, use `http://localhost:11434/v1` and leave the API Key empty.
@@ -77,15 +78,24 @@ segments. It then produces continuous, non-overlapping chapters covering the com
 > A single processing request is currently limited to 2,000 caption segments or 100,000 characters.
 > Videos above either limit fail explicitly instead of silently falling back to mechanical chunking.
 
-## Providers and languages
+## Providers and models
 
-| Provider | Default endpoint | API Key |
+The settings page includes 11 presets across three request protocols, plus a Custom connection.
+Preset model names are suggestions rather than a fixed allowlist: **Fetch available models** reads
+the current account's model endpoint, while the model field always accepts a manually entered ID.
+
+| Protocol | Built-in Provider presets | Model discovery |
 | --- | --- | --- |
-| DeepSeek | `https://api.deepseek.com` | Required |
-| OpenAI | `https://api.openai.com/v1` | Required |
-| OpenRouter | `https://openrouter.ai/api/v1` | Required |
-| Ollama | `http://localhost:11434/v1` | Optional |
-| Custom | Any OpenAI-compatible HTTPS endpoint | Provider-dependent |
+| OpenAI-compatible | DeepSeek, OpenAI, xAI, Mistral, OpenRouter, Groq, Together AI, Cerebras | `GET /models` |
+| Anthropic Messages | Anthropic | `GET /v1/models` |
+| Gemini GenerateContent | Google Gemini | `GET /v1beta/models` |
+| OpenAI-compatible local | Ollama or another local server | `GET /models`; API Key optional |
+| Custom | Any HTTPS endpoint using one of the three protocols | Standard model-list endpoint for the selected protocol |
+
+Every preset supplies a default Base URL and a short model suggestion list. The extension still
+uses the live model-list response and a small **Test connection** generation request as the useful
+availability checks; a catalog entry alone does not guarantee that a model is enabled for an
+account. The test request may incur a minimal Provider charge.
 
 Non-local endpoints must use HTTPS. Saving settings requests optional host access only for the
 configured origin.
@@ -123,8 +133,8 @@ Shortcuts can be customized at `chrome://extensions/shortcuts`.
 - Chrome 116 or later.
 - A standard `youtube.com/watch` page with a readable native or automatically generated caption
   track.
-- An OpenAI-compatible Provider supporting `/chat/completions` and the common OpenAI JSON response
-  format.
+- A supported AI endpoint: OpenAI-compatible `/chat/completions`, Anthropic `/messages`, or Gemini
+  `generateContent`. Models that cannot reliably return the requested JSON summary are rejected.
 
 Shorts, live streams, local ASR, and audio-upload transcription are not currently supported. Chrome
 Web Store installation and automatic updates are not available yet.

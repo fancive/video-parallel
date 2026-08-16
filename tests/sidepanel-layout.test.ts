@@ -17,6 +17,8 @@ test("side panel keeps playback controls in the compact masthead", async () => {
     /id="(?:videoTitle|channelName|languageChip|summaryStatus|summaryTitle)"/,
   );
   assert.doesNotMatch(html, /<h2|Content map|简体中文章节概要/);
+  assert.match(workspace, /aria-label="全文及章节概要"/);
+  assert.match(css, /\.video-overview\s*\{/);
   assert.match(workspace, /id="commandBar"/);
   assert.doesNotMatch(css, /\.command-bar\s*\{[^}]*position:\s*fixed/s);
 });

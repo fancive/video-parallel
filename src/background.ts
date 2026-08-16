@@ -1,15 +1,22 @@
 import {
-  chatCompletionsUrl,
+  buildCompletionRequest,
+  buildModelListRequest,
+  parseCompletionResponse,
+  parseModelListResponse,
+  shouldRetryWithoutJsonMode,
+} from "./lib/provider-client";
+import {
   normalizeSettings,
   providerOriginPattern,
+  providerRequiresApiKey,
   SETTINGS_KEY,
 } from "./lib/settings";
 import { notifySidePanelIfReady, openTabSidePanel, sidePanelPath } from "./lib/side-panel";
 import {
-  buildChapterMessages,
+  buildSummaryMessages,
   MAX_CHAPTER_TRANSCRIPT_CHARACTERS,
   MAX_CHAPTER_TRANSCRIPT_SEGMENTS,
-  parseChapterResponse,
+  parseSummaryResponse,
 } from "./lib/summary";
 import {
   extractVideoId,
@@ -18,15 +25,10 @@ import {
   parseJson3Transcript,
   selectCaptionTrack,
 } from "./lib/transcript";
-import type {
-  AppSettings,
-  ChapterOutline,
-  PlayerSnapshot,
-  TranscriptSegment,
-  VideoContext,
-} from "./lib/types";
+import type { AppSettings, PlayerSnapshot, TranscriptSegment, VideoContext } from "./lib/types";
 
 const AI_TIMEOUT_MS = 120_000;
+const MODEL_LIST_TIMEOUT_MS = 30_000;
 const MAX_AI_RESPONSE_BYTES = 2 * 1024 * 1024;
 const YOUTUBE_CAPTION_FALLBACK_CLIENT = {
   clientName: "ANDROID",
@@ -121,12 +123,32 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
     return true;
   }
 
-  if (type === "GENERATE_CHAPTERS") {
-    generateChapters(
+  if (type === "GENERATE_SUMMARY") {
+    generateSummary(
       Array.isArray(request.segments) ? (request.segments as TranscriptSegment[]) : [],
       String(request.targetLanguage ?? ""),
       String(request.videoTitle ?? ""),
     )
+      .then((result) => sendResponse({ ok: true, ...result }))
+      .catch((error: unknown) => sendResponse({ ok: false, error: errorMessage(error) }));
+    return true;
+  }
+
+  if (type === "LIST_PROVIDER_MODELS" || type === "TEST_PROVIDER") {
+    if (!isOptionsPageSender(sender)) {
+      sendResponse({ ok: false, error: "该操作只能从扩展设置页发起。" });
+      return false;
+    }
+    let settings: AppSettings;
+    try {
+      settings = normalizeSettings(request.settings);
+    } catch (error) {
+      sendResponse({ ok: false, error: errorMessage(error) });
+      return false;
+    }
+    const operation =
+      type === "LIST_PROVIDER_MODELS" ? listProviderModels(settings) : testProvider(settings);
+    operation
       .then((result) => sendResponse({ ok: true, ...result }))
       .catch((error: unknown) => sendResponse({ ok: false, error: errorMessage(error) }));
     return true;
@@ -557,11 +579,11 @@ async function assertYouTubeTab(tabId: number): Promise<void> {
   }
 }
 
-async function generateChapters(
+async function generateSummary(
   segments: TranscriptSegment[],
   targetLanguage: string,
   videoTitle: string,
-): Promise<{ chapters: ChapterOutline[] }> {
+): Promise<ReturnType<typeof parseSummaryResponse>> {
   validateChapterSegments(segments);
   const settings = await getSettings();
   await assertProviderReady(settings);
@@ -570,56 +592,90 @@ async function generateChapters(
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const content = await requestAiCompletion(
       settings,
-      buildChapterMessages(segments, targetLanguage, videoTitle),
+      buildSummaryMessages(segments, targetLanguage, videoTitle),
     );
     try {
-      return { chapters: parseChapterResponse(content, segments) };
+      return parseSummaryResponse(content, segments);
     } catch (error) {
       parseError = error;
       if (attempt === 0) {
-        console.warn("[video-parallel] Retrying invalid chapter response:", errorMessage(error));
+        console.warn("[video-parallel] Retrying invalid summary response:", errorMessage(error));
       }
     }
   }
-  throw parseError instanceof Error ? parseError : new Error("AI 返回的章节无法解析。");
+  throw parseError instanceof Error ? parseError : new Error("AI 返回的概要无法解析。");
 }
 
 async function requestAiCompletion(
   settings: AppSettings,
   messages: Array<{ role: "system" | "user"; content: string }>,
+  maxOutputTokens?: number,
 ): Promise<string> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
   try {
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (settings.apiKey) headers.Authorization = `Bearer ${settings.apiKey}`;
-
-    const response = await fetch(chatCompletionsUrl(settings.baseUrl), {
-      method: "POST",
-      headers,
-      signal: controller.signal,
-      body: JSON.stringify({
-        model: settings.model,
-        temperature: 0.2,
-        response_format: { type: "json_object" },
-        messages,
-      }),
-    });
-    const text = await readBoundedText(response);
-    if (!response.ok) {
-      throw new Error(providerError(text, response.status));
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const request = buildCompletionRequest(settings, messages, {
+        jsonMode: attempt === 0,
+        maxOutputTokens,
+      });
+      const response = await fetch(request.url, { ...request.init, signal: controller.signal });
+      const text = await readBoundedText(response);
+      if (!response.ok) {
+        if (attempt === 0 && shouldRetryWithoutJsonMode(response.status, text)) continue;
+        throw new Error(providerError(text, response.status));
+      }
+      return parseCompletionResponse(settings.protocol, text);
     }
-    const parsed = JSON.parse(text) as {
-      choices?: Array<{ message?: { content?: unknown } }>;
-    };
-    const content = parsed.choices?.[0]?.message?.content;
-    if (typeof content !== "string" || !content.trim()) {
-      throw new Error("AI 服务返回了空内容。");
-    }
-    return content;
+    throw new Error("AI 服务不支持当前 JSON 输出模式。");
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
       throw new Error("AI 请求超过 120 秒，请重试。");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function listProviderModels(settings: AppSettings): Promise<{ models: string[] }> {
+  await assertProviderReady(settings, false);
+  const request = buildModelListRequest(settings);
+  const response = await fetchWithTimeout(request, MODEL_LIST_TIMEOUT_MS);
+  const text = await readBoundedText(response);
+  if (!response.ok) throw new Error(providerError(text, response.status));
+  const models = parseModelListResponse(settings.protocol, text);
+  if (models.length === 0) throw new Error("当前账号没有返回可用于文本生成的模型。");
+  return { models };
+}
+
+async function testProvider(settings: AppSettings): Promise<{ message: string }> {
+  await assertProviderReady(settings);
+  const content = await requestAiCompletion(
+    settings,
+    [
+      { role: "system", content: 'Return only JSON in this shape: {"ok":true}.' },
+      { role: "user", content: "Test this model connection." },
+    ],
+    64,
+  );
+  if (!/"?ok"?\s*:\s*true/i.test(content)) {
+    throw new Error("模型已响应，但没有遵循 JSON 输出要求。");
+  }
+  return { message: `${settings.model} 连接正常` };
+}
+
+async function fetchWithTimeout(
+  request: { url: string; init: RequestInit },
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(request.url, { ...request.init, signal: controller.signal });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error(`Provider 请求超过 ${Math.round(timeoutMs / 1000)} 秒。`);
     }
     throw error;
   } finally {
@@ -632,14 +688,21 @@ async function getSettings(): Promise<AppSettings> {
   return normalizeSettings(stored[SETTINGS_KEY]);
 }
 
-async function assertProviderReady(settings: AppSettings): Promise<void> {
-  if (!settings.model) throw new Error("请先在设置中填写模型名称。");
-  if (!settings.apiKey && settings.provider !== "local") {
+async function assertProviderReady(settings: AppSettings, requireModel = true): Promise<void> {
+  if (requireModel && !settings.model) throw new Error("请先在设置中填写模型名称。");
+  if (!settings.apiKey && providerRequiresApiKey(settings)) {
     throw new Error("请先在设置中填写 API Key。");
   }
   const permission = providerOriginPattern(settings.baseUrl);
   const hasPermission = await chrome.permissions.contains({ origins: [permission] });
   if (!hasPermission) throw new Error("当前接口还没有网络权限，请重新保存设置。");
+}
+
+function isOptionsPageSender(sender: chrome.runtime.MessageSender): boolean {
+  return (
+    sender.id === chrome.runtime.id &&
+    Boolean(sender.url?.startsWith(chrome.runtime.getURL("options.html")))
+  );
 }
 
 function validateChapterSegments(segments: TranscriptSegment[]): void {

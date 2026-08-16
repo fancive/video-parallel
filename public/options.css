@@ -185,7 +185,89 @@ select {
 input:hover,
 select:hover { border-color: var(--ink); }
 
+select:disabled {
+  color: #51616e;
+  background:
+    linear-gradient(135deg, transparent 0 92%, rgb(47 89 255 / 10%) 92%),
+    #eef3f6;
+  cursor: default;
+  opacity: 1;
+}
+
 .wide-field { grid-column: 1 / -1; }
+
+.provider-route {
+  display: grid;
+  grid-template-columns: auto minmax(18px, 1fr) auto minmax(18px, 1fr) auto;
+  gap: 9px;
+  align-items: center;
+  min-height: 39px;
+  padding: 8px 10px;
+  border: 1px solid rgb(47 89 255 / 17%);
+  border-left: 3px solid var(--rail);
+  background: rgb(47 89 255 / 5%);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.provider-route span { color: var(--rail); font-weight: 800; }
+.provider-route strong { color: var(--ink); font-size: 10px; text-align: center; }
+.provider-route small { color: var(--muted); text-align: right; }
+
+.provider-route i {
+  position: relative;
+  height: 1px;
+  background: rgb(47 89 255 / 32%);
+}
+
+.provider-route i::after {
+  position: absolute;
+  top: -2px;
+  right: -1px;
+  width: 5px;
+  height: 5px;
+  border-top: 1px solid var(--rail);
+  border-right: 1px solid var(--rail);
+  content: "";
+  transform: rotate(45deg);
+}
+
+.provider-tools {
+  display: grid;
+  gap: 9px;
+  padding-top: 2px;
+}
+
+.provider-tools > div { display: flex; gap: 8px; }
+
+.provider-tools button {
+  min-height: 38px;
+  padding: 0 13px;
+  border: 1px solid #9eacb6;
+  border-radius: 3px;
+  color: var(--ink);
+  background: #f3f6f8;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.provider-tools button:first-child { border-color: rgb(47 89 255 / 42%); color: var(--rail); }
+.provider-tools button:hover { border-color: var(--ink); background: #fff; }
+.provider-tools button:disabled { cursor: wait; opacity: 0.5; }
+
+.provider-tools p {
+  min-height: 18px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.provider-tools p[data-state="success"] { color: #007d6d; }
+.provider-tools p[data-state="error"] { color: #c44330; }
 
 .toggle-field {
   position: relative;
@@ -275,6 +357,11 @@ select:hover { border-color: var(--ink); }
   .section-index { display: none; }
   .form-grid { grid-column: 1; grid-template-columns: 1fr; }
   .wide-field { grid-column: 1; }
+  .provider-route {
+    grid-template-columns: auto 1fr auto;
+  }
+  .provider-route i:last-of-type,
+  .provider-route small { display: none; }
   .settings-actions { align-items: stretch; padding: 18px 22px; flex-direction: column; }
 }
 

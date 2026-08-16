@@ -10,6 +10,7 @@ import {
   DEFAULT_SETTINGS,
   normalizeSettings,
   providerFingerprint,
+  providerRequiresApiKey,
   SETTINGS_KEY,
   TARGET_LANGUAGE_LABELS,
 } from "./lib/settings";
@@ -23,6 +24,7 @@ import type {
   SummaryCache,
   SummaryContent,
   VideoContext,
+  VideoOverview,
 } from "./lib/types";
 
 interface RuntimeResponse {
@@ -30,6 +32,7 @@ interface RuntimeResponse {
   error?: string;
   video?: VideoContext;
   seconds?: number;
+  overview?: VideoOverview;
   chapters?: ChapterOutline[];
   start?: boolean;
 }
@@ -56,6 +59,7 @@ const fontSizeOptions = Array.from(
 const toast = element<HTMLElement>("toast");
 
 let currentVideo: VideoContext | null = null;
+let currentOverview: VideoOverview | null = null;
 let currentChapters: SummaryBlock[] = [];
 let settings: AppSettings = DEFAULT_SETTINGS;
 let panelPreferences: PanelPreferences = DEFAULT_PANEL_PREFERENCES;
@@ -154,6 +158,7 @@ async function loadVideo(): Promise<void> {
     if (!response.ok || !response.video) throw new Error(response.error || "无法读取视频。");
 
     currentVideo = response.video;
+    currentOverview = null;
     currentChapters = [];
     await restoreSummaryCache();
     renderVideo();
@@ -168,6 +173,7 @@ async function loadVideo(): Promise<void> {
   } catch (error) {
     if (generation !== loadingGeneration) return;
     currentVideo = null;
+    currentOverview = null;
     currentChapters = [];
     emptyTitle.textContent = "还不能生成视频概要";
     emptyMessage.textContent = error instanceof Error ? error.message : String(error);
@@ -191,27 +197,28 @@ async function processVideo(): Promise<void> {
   processing = true;
   processButton.disabled = true;
   statusDot.classList.add("is-working");
-  setStatus("模型正在识别章节并生成概要", true);
+  setStatus("模型正在生成全文要点并识别章节", true);
 
   try {
     const response = await sendMessage({
-      type: "GENERATE_CHAPTERS",
+      type: "GENERATE_SUMMARY",
       segments: video.segments,
       targetLanguage: settings.targetLanguage,
       videoTitle: video.title,
     });
-    if (!response.ok || !response.chapters) {
+    if (!response.ok || !response.overview || !response.chapters) {
       throw new Error(response.error || "章节概要生成失败。");
     }
     if (currentVideo?.videoId !== video.videoId) return;
 
     const chapters = makeChapterBlocks(video.segments, response.chapters);
     if (chapters.length === 0) throw new Error("模型没有返回可显示的章节。");
+    currentOverview = response.overview;
     currentChapters = chapters;
     await saveSummaryCache();
     renderSummary();
-    setStatus(`已生成 ${chapters.length} 个章节`, false);
-    showToast("章节概要已生成并保存在本地");
+    setStatus(`已生成全文要点和 ${chapters.length} 个章节`, false);
+    showToast("全文及章节概要已生成并保存在本地");
   } catch (error) {
     setStatus(
       currentChapters.length ? "处理已暂停，上次概要仍保留" : "处理未完成，请检查模型设置",
@@ -243,6 +250,8 @@ function renderSummary(): void {
     updateProcessButton();
     return;
   }
+
+  if (currentOverview) summaryList.appendChild(createOverviewCard(currentOverview));
 
   for (const chapter of currentChapters) {
     const card = document.createElement("article");
@@ -290,7 +299,45 @@ function renderSummary(): void {
   updateProcessButton();
 }
 
+function createOverviewCard(overview: VideoOverview): HTMLElement {
+  const card = document.createElement("article");
+  card.className = "video-overview";
+
+  const rail = document.createElement("div");
+  rail.className = "overview-rail";
+  rail.setAttribute("aria-hidden", "true");
+  const scope = document.createElement("span");
+  scope.textContent = "全片";
+  const start = document.createElement("strong");
+  start.textContent = "00:00";
+  const end = document.createElement("span");
+  end.textContent = "END";
+  rail.append(scope, start, end);
+
+  const body = document.createElement("div");
+  body.className = "overview-copy";
+  const eyebrow = document.createElement("p");
+  eyebrow.className = "overview-eyebrow";
+  eyebrow.textContent = "WHOLE VIDEO";
+  const title = document.createElement("h2");
+  title.textContent = "全文要点";
+  const summary = document.createElement("p");
+  summary.className = "overview-summary";
+  summary.textContent = overview.summary;
+  const points = document.createElement("ol");
+  for (const point of overview.keyPoints) {
+    const item = document.createElement("li");
+    item.textContent = point;
+    points.appendChild(item);
+  }
+  body.append(eyebrow, title, summary, points);
+
+  card.append(rail, body);
+  return card;
+}
+
 async function reloadSummaryCache(): Promise<void> {
+  currentOverview = null;
   currentChapters = [];
   await restoreSummaryCache();
   renderSummary();
@@ -303,12 +350,13 @@ async function restoreSummaryCache(): Promise<void> {
   const stored = await chrome.storage.local.get(key);
   const cache = stored[key] as SummaryCache | undefined;
   if (
-    cache?.version !== 2 ||
+    cache?.version !== 3 ||
     cache.promptVersion !== SUMMARY_PROMPT_VERSION ||
     cache.videoId !== currentVideo.videoId ||
     cache.targetLanguage !== settings.targetLanguage ||
     cache.providerFingerprint !== providerFingerprint(settings) ||
     cache.sourceFingerprint !== summarySourceFingerprint() ||
+    !isVideoOverview(cache.overview) ||
     !Array.isArray(cache.chapters)
   ) {
     return;
@@ -321,18 +369,20 @@ async function restoreSummaryCache(): Promise<void> {
     outline.push({ startSegmentId: segment.id, ...cached.content });
   }
   if (outline[0]?.startSegmentId !== currentVideo.segments[0]?.id) return;
+  currentOverview = cache.overview;
   currentChapters = makeChapterBlocks(currentVideo.segments, outline);
 }
 
 async function saveSummaryCache(): Promise<void> {
-  if (!currentVideo) return;
+  if (!currentVideo || !currentOverview) return;
   const cache: SummaryCache = {
-    version: 2,
+    version: 3,
     promptVersion: SUMMARY_PROMPT_VERSION,
     videoId: currentVideo.videoId,
     targetLanguage: settings.targetLanguage,
     providerFingerprint: providerFingerprint(settings),
     sourceFingerprint: summarySourceFingerprint(),
+    overview: currentOverview,
     chapters: currentChapters.map(({ startMs, content }) => ({ startMs, content })),
     updatedAt: Date.now(),
   };
@@ -358,7 +408,7 @@ function updateProcessButton(): void {
 }
 
 function ensureProviderConfigured(): boolean {
-  if (settings.model && (settings.apiKey || settings.provider === "local")) return true;
+  if (settings.model && (settings.apiKey || !providerRequiresApiKey(settings))) return true;
   showToast("先配置 AI Provider 和 API Key");
   openSettings();
   return false;
@@ -470,7 +520,7 @@ function exportMarkdown(): void {
 }
 
 function currentMarkdown(): string | null {
-  if (!currentVideo || currentChapters.length === 0) return null;
+  if (!currentVideo || !currentOverview || currentChapters.length === 0) return null;
   return buildSummaryMarkdown(
     {
       title: currentVideo.title,
@@ -479,6 +529,7 @@ function currentMarkdown(): string | null {
       sourceLanguage: currentVideo.sourceLanguage,
       summaryLanguage: TARGET_LANGUAGE_LABELS[settings.targetLanguage] ?? settings.targetLanguage,
     },
+    currentOverview,
     currentChapters,
   );
 }
@@ -541,6 +592,18 @@ function isSummaryContent(value: unknown): value is SummaryContent {
   );
 }
 
+function isVideoOverview(value: unknown): value is VideoOverview {
+  if (!value || typeof value !== "object") return false;
+  const overview = value as Partial<VideoOverview>;
+  return (
+    typeof overview.summary === "string" &&
+    Boolean(overview.summary.trim()) &&
+    Array.isArray(overview.keyPoints) &&
+    overview.keyPoints.length > 0 &&
+    overview.keyPoints.every((point) => typeof point === "string" && Boolean(point.trim()))
+  );
+}
+
 async function sendMessage(message: Record<string, unknown>): Promise<RuntimeResponse> {
   return chrome.runtime.sendMessage(message) as Promise<RuntimeResponse>;
 }
@@ -558,6 +621,15 @@ function renderLocalPreview(): void {
       { id: "s1", startMs: 65_000, durationMs: 88_000, text: "Retrieval alone is not enough." },
       { id: "s2", startMs: 153_000, durationMs: 81_000, text: "Context becomes a service." },
       { id: "s3", startMs: 234_000, durationMs: 68_000, text: "Teams need clear boundaries." },
+    ],
+  };
+  currentOverview = {
+    summary:
+      "这段视频主张，智能体的能力上限不仅由模型决定，更取决于能否持续获得新鲜、可信且权限清晰的上下文。把上下文获取与治理独立成基础服务，可以让产品团队专注任务逻辑，同时保留来源和安全边界。",
+    keyPoints: [
+      "实时上下文是智能体可靠行动的前提，而不是附加能力",
+      "单次检索无法覆盖持续变化的任务状态",
+      "独立上下文层应统一负责新鲜度、来源和访问控制",
     ],
   };
   currentChapters = makeChapterBlocks(currentVideo.segments, [

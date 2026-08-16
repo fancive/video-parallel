@@ -22,31 +22,50 @@
           <div class="section-copy">
             <p class="eyebrow">Summary engine</p>
             <h1>选择 AI 服务</h1>
-            <p>支持 OpenAI-compatible Chat Completions。保存时只申请当前接口域名的访问权限。</p>
+            <p>直接连接 OpenAI-compatible、Anthropic 和 Gemini。模型可以从账号读取，也可以继续手动填写。</p>
           </div>
           <div class="form-grid">
+            <div class="provider-route wide-field" aria-label="当前模型路由">
+              <span id="providerRouteKind">直接连接</span>
+              <i aria-hidden="true"></i>
+              <strong id="providerRouteProtocol">OpenAI-compatible</strong>
+              <i aria-hidden="true"></i>
+              <small id="providerRouteCatalog">内置模型建议</small>
+            </div>
             <label>
               <span>Provider</span>
-              <select id="provider" name="provider">
-                <option value="deepseek">DeepSeek</option>
-                <option value="openai">OpenAI</option>
-                <option value="openrouter">OpenRouter</option>
-                <option value="local">Local / Ollama</option>
-                <option value="custom">Custom</option>
-              </select>
+              <select id="provider" name="provider"></select>
             </label>
             <label>
-              <span>Model</span>
-              <input id="model" name="model" autocomplete="off" spellcheck="false" />
+              <span>Protocol</span>
+              <select id="protocol" name="protocol">
+                <option value="openai-compatible">OpenAI-compatible</option>
+                <option value="anthropic">Anthropic Messages</option>
+                <option value="google">Gemini GenerateContent</option>
+              </select>
+            </label>
+            <label class="wide-field">
+              <span>Model <small>可选择，也可直接输入模型 ID</small></span>
+              <input id="model" name="model" list="modelOptions" autocomplete="off" spellcheck="false" />
+              <datalist id="modelOptions"></datalist>
             </label>
             <label class="wide-field">
               <span>Base URL</span>
               <input id="baseUrl" name="baseUrl" type="url" autocomplete="off" spellcheck="false" />
             </label>
             <label class="wide-field">
-              <span>API Key <small>本地服务可以留空</small></span>
+              <span><b id="apiKeyLabel">API Key</b> <small>localhost 可以留空</small></span>
               <input id="apiKey" name="apiKey" type="password" autocomplete="off" spellcheck="false" />
             </label>
+            <div class="provider-tools wide-field">
+              <div>
+                <button id="discoverModelsButton" type="button">获取可用模型</button>
+                <button id="testProviderButton" type="button">测试连接</button>
+              </div>
+              <p id="providerStatus" role="status" aria-live="polite">
+                模型 ID 始终可以手动填写；测试连接会发送一次极小的生成请求。
+              </p>
+            </div>
           </div>
         </section>
 
