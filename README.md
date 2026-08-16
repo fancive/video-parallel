@@ -6,9 +6,9 @@
 
 Turn native YouTube captions into a full-video overview and semantic AI chapter summaries that stay in sync with playback.
 
-[![Chrome 116+](https://img.shields.io/badge/Chrome-116%2B-2f59ff?style=flat-square&logo=googlechrome&logoColor=white)](#requirements) [![Manifest V3](https://img.shields.io/badge/Manifest-V3-15212b?style=flat-square)](public/manifest.json) [![Local-first](https://img.shields.io/badge/data-local--first-008f7c?style=flat-square)](PRIVACY.md) [![MIT License](https://img.shields.io/github/license/fancive/video-parallel?style=flat-square)](LICENSE)
+[![Release v0.1.15](https://img.shields.io/badge/release-v0.1.15-f05b43?style=flat-square)](https://github.com/fancive/video-parallel/releases/tag/v0.1.15) [![CI](https://github.com/fancive/video-parallel/actions/workflows/ci.yml/badge.svg)](https://github.com/fancive/video-parallel/actions/workflows/ci.yml) [![Chrome 116+](https://img.shields.io/badge/Chrome-116%2B-2f59ff?style=flat-square&logo=googlechrome&logoColor=white)](#requirements) [![Manifest V3](https://img.shields.io/badge/Manifest-V3-15212b?style=flat-square)](public/manifest.json) [![Local-first](https://img.shields.io/badge/data-local--first-008f7c?style=flat-square)](PRIVACY.md) [![MIT License](https://img.shields.io/github/license/fancive/video-parallel?style=flat-square)](LICENSE)
 
-[Install from source](#install-from-source) · [How it works](#how-it-works) · [Privacy](PRIVACY.md)
+[Download v0.1.15](https://github.com/fancive/video-parallel/releases/download/v0.1.15/video-parallel-v0.1.15.zip) · [Build from source](#build-from-source) · [How it works](#how-it-works) · [Privacy](PRIVACY.md)
 
 </div>
 
@@ -28,7 +28,12 @@ The extension reads caption tracks already available on YouTube. It does not upl
 on a transcript proxy. The complete transcript is sent to your configured provider only when you
 explicitly click **Process video**.
 
-## Install from source
+## Install
+
+Download [`video-parallel-v0.1.15.zip`](https://github.com/fancive/video-parallel/releases/download/v0.1.15/video-parallel-v0.1.15.zip),
+unzip it, then load the extracted directory from `chrome://extensions` using **Load unpacked**.
+
+## Build from source
 
 ```bash
 git clone https://github.com/fancive/video-parallel.git
@@ -37,24 +42,26 @@ npm install
 npm run build
 ```
 
-Then:
+Then load the generated build:
 
 1. Open `chrome://extensions`.
 2. Enable **Developer mode**.
 3. Click **Load unpacked** and select the generated `dist/` directory.
-4. Open the extension settings, choose a Provider, and add its API Key. You can fetch the models
-   available to your account, test the connection, or enter a model ID manually.
+4. Open the extension settings, choose a Provider, and add its API Key. Click **Fetch available
+   models**, choose one from the Model dropdown, or enter a Model ID manually; then use **Test
+   connection** before saving.
 5. Visit a standard YouTube `watch` page with captions and click **Summary** in the video action bar.
 
 For a local Ollama server, use `http://localhost:11434/v1` and leave the API Key empty.
 
 ## What you get
 
-- A title, concise summary, key points, and clickable time range for every chapter.
+- A full-video overview followed by a title, concise summary, key points, and clickable time range
+  for every semantic chapter.
 - Automatic active-chapter highlighting and scrolling during playback.
 - Small, standard, and large Side Panel reading sizes independent of YouTube page zoom.
-- Summaries in Simplified Chinese, Traditional Chinese, Japanese, Korean, English, French, German,
-  and Spanish.
+- Full-video takeaways and chapter summaries consistently written in the selected output language:
+  Simplified Chinese, Traditional Chinese, Japanese, Korean, English, French, German, or Spanish.
 - Separate caches by video, language, endpoint, model, and prompt version.
 - One-click copy and Markdown export with timestamps.
 - No developer-operated backend, analytics, advertising, or telemetry.
@@ -81,8 +88,9 @@ segments. It then produces continuous, non-overlapping chapters covering the com
 ## Providers and models
 
 The settings page includes 11 presets across three request protocols, plus a Custom connection.
-Preset model names are suggestions rather than a fixed allowlist: **Fetch available models** reads
-the current account's model endpoint, while the model field always accepts a manually entered ID.
+Preset model names are suggestions rather than a fixed allowlist. **Fetch available models** reads
+the current account's model endpoint and puts the returned IDs in a real Model dropdown. Selecting
+one synchronizes the editable Model ID field, which continues to accept any manually entered ID.
 
 | Protocol | Built-in Provider presets | Model discovery |
 | --- | --- | --- |
@@ -151,6 +159,15 @@ npm run package
 ```
 
 `npm run package` creates `release/video-parallel-v0.1.15.zip`.
+
+## CI and releases
+
+- **CI** runs `npm ci` and the complete package gate on pushes to `main`, pull requests, and manual
+  dispatches. Successful runs retain the extension zip as a workflow artifact for 14 days.
+- **Release** validates that the tag, `package.json`, and Chrome Manifest versions match, reruns the
+  complete package gate, then creates a GitHub Release and uploads the installable zip.
+- Pushing a `v*` tag publishes automatically. Existing tags can be published through the Release
+  workflow's manual `tag` input.
 
 ## Roadmap
 

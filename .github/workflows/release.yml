@@ -1,0 +1,80 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to release, for example v0.1.15
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Verify and publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Verify tag and project versions
+        run: |
+          node <<'NODE'
+          const fs = require("node:fs");
+          const tag = process.env.RELEASE_TAG;
+          if (!/^v\d+\.\d+\.\d+$/.test(tag)) {
+            throw new Error(`Release tag must look like v1.2.3, received ${tag}`);
+          }
+          const expected = tag.slice(1);
+          const packageVersion = JSON.parse(fs.readFileSync("package.json", "utf8")).version;
+          const manifestVersion = JSON.parse(
+            fs.readFileSync("public/manifest.json", "utf8"),
+          ).version;
+          if (packageVersion !== expected || manifestVersion !== expected) {
+            throw new Error(
+              `Version mismatch: tag=${expected}, package=${packageVersion}, manifest=${manifestVersion}`,
+            );
+          }
+          NODE
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check, test, build, and package
+        run: npm run package
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          asset="release/video-parallel-${RELEASE_TAG}.zip"
+          test -f "$asset"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$asset" --clobber
+          else
+            gh release create "$RELEASE_TAG" "${asset}#Chrome extension package" \
+              --verify-tag \
+              --generate-notes \
+              --title "video-parallel ${RELEASE_TAG}"
+          fi
