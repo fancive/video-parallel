@@ -6,9 +6,9 @@
 
 Turn native YouTube captions into a full-video overview and semantic AI chapter summaries that stay in sync with playback.
 
-[![Release v0.1.15](https://img.shields.io/badge/release-v0.1.15-f05b43?style=flat-square)](https://github.com/fancive/video-parallel/releases/tag/v0.1.15) [![CI](https://github.com/fancive/video-parallel/actions/workflows/ci.yml/badge.svg)](https://github.com/fancive/video-parallel/actions/workflows/ci.yml) [![Chrome 116+](https://img.shields.io/badge/Chrome-116%2B-2f59ff?style=flat-square&logo=googlechrome&logoColor=white)](#requirements) [![Manifest V3](https://img.shields.io/badge/Manifest-V3-15212b?style=flat-square)](public/manifest.json) [![Local-first](https://img.shields.io/badge/data-local--first-008f7c?style=flat-square)](PRIVACY.md) [![MIT License](https://img.shields.io/github/license/fancive/video-parallel?style=flat-square)](LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/fancive/video-parallel?display_name=tag&sort=semver&style=flat-square&color=f05b43)](https://github.com/fancive/video-parallel/releases/latest) [![CI](https://github.com/fancive/video-parallel/actions/workflows/ci.yml/badge.svg)](https://github.com/fancive/video-parallel/actions/workflows/ci.yml) [![Chrome 116+](https://img.shields.io/badge/Chrome-116%2B-2f59ff?style=flat-square&logo=googlechrome&logoColor=white)](#requirements) [![Manifest V3](https://img.shields.io/badge/Manifest-V3-15212b?style=flat-square)](public/manifest.json) [![Local-first](https://img.shields.io/badge/data-local--first-008f7c?style=flat-square)](PRIVACY.md) [![MIT License](https://img.shields.io/github/license/fancive/video-parallel?style=flat-square)](LICENSE)
 
-[Download v0.1.15](https://github.com/fancive/video-parallel/releases/download/v0.1.15/video-parallel-v0.1.15.zip) · [Build from source](#build-from-source) · [How it works](#how-it-works) · [Privacy](PRIVACY.md)
+[Install from latest release](#install-from-github-release) · [Build from source](#build-from-source) · [How it works](#how-it-works) · [Privacy](PRIVACY.md)
 
 </div>
 
@@ -28,10 +28,17 @@ The extension reads caption tracks already available on YouTube. It does not upl
 on a transcript proxy. The complete transcript is sent to your configured provider only when you
 explicitly click **Process video**.
 
-## Install
+## Install from GitHub Release
 
-Download [`video-parallel-v0.1.15.zip`](https://github.com/fancive/video-parallel/releases/download/v0.1.15/video-parallel-v0.1.15.zip),
-unzip it, then load the extracted directory from `chrome://extensions` using **Load unpacked**.
+The release zip is a ready-to-use extension package:
+
+1. Open the [latest release](https://github.com/fancive/video-parallel/releases/latest).
+2. Download the `video-parallel-v*.zip` asset.
+3. Open `chrome://extensions` and enable **Developer mode**.
+4. Drag the downloaded zip onto the extensions page.
+
+If drag-and-drop is unavailable in your browser, unzip the package, click **Load unpacked**, and
+select the extracted directory.
 
 ## Build from source
 
@@ -158,7 +165,7 @@ npm run check
 npm run package
 ```
 
-`npm run package` creates `release/video-parallel-v0.1.15.zip`.
+`npm run package` creates `release/video-parallel-v<version>.zip`.
 
 ## CI and releases
 
