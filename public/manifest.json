@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "video-parallel",
-  "version": "0.1.5",
+  "version": "0.1.14",
   "minimum_chrome_version": "116",
   "description": "Turn YouTube captions into AI-generated chapter summaries synced to playback.",
   "permissions": ["sidePanel", "storage", "tabs", "scripting"],
@@ -18,8 +18,11 @@
     "default_title": "Open video-parallel"
   },
   "commands": {
-    "toggle-side-panel": {
-      "suggested_key": { "default": "Alt+Shift+P" },
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Alt+Shift+P",
+        "mac": "Option+Shift+9"
+      },
       "description": "打开或关闭当前视频的概要侧边栏"
     },
     "process-video": {

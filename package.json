@@ -1,6 +1,6 @@
 {
   "name": "video-parallel",
-  "version": "0.1.5",
+  "version": "0.1.14",
   "private": true,
   "description": "Turn YouTube captions into AI-generated chapter summaries synced to playback.",
   "license": "MIT",

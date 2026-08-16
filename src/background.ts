@@ -4,6 +4,7 @@ import {
   providerOriginPattern,
   SETTINGS_KEY,
 } from "./lib/settings";
+import { notifySidePanelIfReady, openTabSidePanel, sidePanelPath } from "./lib/side-panel";
 import {
   buildChapterMessages,
   MAX_CHAPTER_TRANSCRIPT_CHARACTERS,
@@ -47,20 +48,27 @@ const pendingProcessTabs = new Set<number>();
 
 void chrome.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" }).catch(() => {});
 void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
-void configureExistingSidePanels();
 
 chrome.runtime.onInstalled.addListener(() => {
-  void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
-  void configureExistingSidePanels();
+  void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-  if (!changeInfo.url) return;
-  void configureSidePanelForTab(tabId, changeInfo.url);
+  if (!changeInfo.url || !isWebUrl(changeInfo.url)) return;
+  void configureSidePanelForTab(tabId, changeInfo.url).catch(() => {});
 });
 
-chrome.commands.onCommand.addListener((command) => {
-  void handleShortcut(command);
+chrome.commands.onCommand.addListener((command, tab) => {
+  if (command !== "process-video") return;
+  const tabId = tab?.id;
+  if (!tabId || !extractVideoId(tab.url ?? "")) return;
+
+  pendingProcessTabs.add(tabId);
+  void openTabSidePanel(chrome.sidePanel, tabId)
+    .then(() => notifySidePanelIfReady(chrome.runtime, { type: "START_PROCESSING", tabId }))
+    .catch(() => {
+      pendingProcessTabs.delete(tabId);
+    });
 });
 
 chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
@@ -73,14 +81,27 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
       sendResponse({ ok: false, error: "找不到当前 YouTube 标签页。" });
       return false;
     }
-    void chrome.sidePanel.setOptions({ tabId, path: "sidepanel.html", enabled: true });
-    void chrome.sidePanel.open({ tabId }).catch(() => {});
-    sendResponse({ ok: true });
-    return false;
+    openTabSidePanel(chrome.sidePanel, tabId)
+      .then(() => sendResponse({ ok: true }))
+      .catch((error: unknown) => sendResponse({ ok: false, error: errorMessage(error) }));
+    return true;
+  }
+
+  if (type === "PREPARE_PANEL") {
+    const tabId = sender.tab?.id;
+    const url = sender.tab?.url ?? "";
+    if (!tabId || !extractVideoId(url)) {
+      sendResponse({ ok: false, error: "找不到当前 YouTube 标签页。" });
+      return false;
+    }
+    configureSidePanelForTab(tabId, url)
+      .then(() => sendResponse({ ok: true }))
+      .catch((error: unknown) => sendResponse({ ok: false, error: errorMessage(error) }));
+    return true;
   }
 
   if (type === "LOAD_VIDEO") {
-    loadActiveVideo()
+    loadVideoForTab(Number(request.tabId))
       .then((video) => sendResponse({ ok: true, video }))
       .catch((error: unknown) => sendResponse({ ok: false, error: errorMessage(error) }));
     return true;
@@ -127,70 +148,27 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
   return false;
 });
 
-async function configureExistingSidePanels(): Promise<void> {
-  const tabs = await chrome.tabs.query({});
-  await Promise.allSettled(
-    tabs.map((tab) =>
-      tab.id ? configureSidePanelForTab(tab.id, tab.url ?? "") : Promise.resolve(),
-    ),
-  );
-}
-
 async function configureSidePanelForTab(tabId: number, url: string): Promise<void> {
   const enabled = extractVideoId(url) !== null;
   await chrome.sidePanel.setOptions(
-    enabled ? { tabId, path: "sidepanel.html", enabled: true } : { tabId, enabled: false },
+    enabled ? { tabId, path: sidePanelPath(tabId), enabled: true } : { tabId, enabled: false },
   );
 }
 
-async function handleShortcut(command: string): Promise<void> {
-  if (command !== "toggle-side-panel" && command !== "process-video") return;
-  const tab = await activeYouTubeTab();
-  if (!tab?.id) return;
-
-  const panelOpen = await isSidePanelOpen(tab.id);
-  if (command === "toggle-side-panel" && panelOpen) {
-    if (typeof chrome.sidePanel.close === "function") {
-      await chrome.sidePanel.close({ tabId: tab.id });
-    } else {
-      await chrome.runtime.sendMessage({ type: "CLOSE_PANEL", tabId: tab.id }).catch(() => {});
-    }
-    return;
-  }
-
-  await chrome.sidePanel.setOptions({ tabId: tab.id, path: "sidepanel.html", enabled: true });
-  if (command === "process-video") pendingProcessTabs.add(tab.id);
-  if (!panelOpen) await chrome.sidePanel.open({ tabId: tab.id });
-  if (command === "process-video" && panelOpen) {
-    await chrome.runtime.sendMessage({ type: "START_PROCESSING", tabId: tab.id }).catch(() => {});
-  }
+function isWebUrl(url: string): boolean {
+  return url.startsWith("https://") || url.startsWith("http://");
 }
 
-async function activeYouTubeTab(): Promise<chrome.tabs.Tab | null> {
-  const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-  const tab = tabs[0];
-  return tab?.id && extractVideoId(tab.url ?? "") ? tab : null;
-}
+async function loadVideoForTab(tabId: number): Promise<VideoContext> {
+  await assertYouTubeTab(tabId);
 
-async function isSidePanelOpen(tabId: number): Promise<boolean> {
-  const contexts = await chrome.runtime.getContexts({ contextTypes: ["SIDE_PANEL"] });
-  return contexts.some((context) => context.tabId === tabId);
-}
-
-async function loadActiveVideo(): Promise<VideoContext> {
-  const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-  const tab = tabs[0];
-  if (!tab?.id || !tab.url?.startsWith("https://www.youtube.com/watch")) {
-    throw new Error("请先打开一个标准 YouTube 视频页面。");
-  }
-
-  const snapshot = await readPlayerSnapshot(tab.id);
+  const snapshot = await readPlayerSnapshot(tabId);
   if (!snapshot) throw new Error("无法读取 YouTube 播放器信息，请刷新页面后重试。");
   const track = selectCaptionTrack(snapshot.tracks, "en");
   if (!track) throw new Error("这个视频没有可读取的原生字幕轨道。");
 
   const payload = await fetchCaptionPayload(
-    tab.id,
+    tabId,
     track.baseUrl,
     snapshot.videoId,
     track.languageCode,
@@ -199,7 +177,7 @@ async function loadActiveVideo(): Promise<VideoContext> {
   if (segments.length === 0) throw new Error("字幕轨道存在，但没有返回可显示的内容。");
 
   return {
-    tabId: tab.id,
+    tabId,
     videoId: snapshot.videoId,
     title: snapshot.title,
     channel: snapshot.channel,

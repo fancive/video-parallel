@@ -8,16 +8,56 @@
   </head>
   <body>
     <header class="masthead">
-      <a class="wordmark" href="https://www.youtube.com" target="_blank" rel="noreferrer">
-        <span class="wordmark-mark" aria-hidden="true"><i></i><i></i></span>
-        <span>video<span>parallel</span></span>
-      </a>
-      <button class="icon-button" id="settingsButton" type="button" aria-label="打开设置">
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z" />
-          <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.37a1.7 1.7 0 0 0-1 .63 1.7 1.7 0 0 0-.35 1.08V21h-4v-.08A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.23 15a1.7 1.7 0 0 0-.63-1 1.7 1.7 0 0 0-1.08-.35H2v-4h.52A1.7 1.7 0 0 0 4.2 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 8.6 4.23a1.7 1.7 0 0 0 1-.63A1.7 1.7 0 0 0 9.95 2.5V2h4v.52A1.7 1.7 0 0 0 15 4.2a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.37 8c.15.39.38.73.7.99.3.25.7.38 1.09.38H22v4h-.84A1.7 1.7 0 0 0 19.4 15Z" />
-        </svg>
-      </button>
+      <div class="masthead-actions">
+        <button
+          class="toolbar-toggle"
+          id="followButton"
+          type="button"
+          aria-label="跟随播放：已开启"
+          aria-pressed="true"
+          title="跟随播放"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 4v16M9 6l10 6-10 6V6Z" />
+          </svg>
+          <span id="followButtonLabel">跟随</span>
+        </button>
+        <button class="toolbar-process" id="processButton" type="button" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M20 7h-5V2M4 17h5v5M19 12a7 7 0 0 0-12-5L4 10M5 12a7 7 0 0 0 12 5l3-3" />
+          </svg>
+          <span id="processButtonLabel">开始处理</span>
+        </button>
+        <div class="font-size-control">
+          <button
+            class="icon-button font-size-button"
+            id="fontSizeButton"
+            type="button"
+            aria-label="内容字号：标准"
+            aria-controls="fontSizeMenu"
+            aria-expanded="false"
+          >
+            <span aria-hidden="true">Aa</span>
+          </button>
+          <div class="font-size-menu" id="fontSizeMenu" role="group" aria-label="内容字号" hidden>
+            <div>
+              <strong>内容字号</strong>
+              <span>仅调整侧面板</span>
+            </div>
+            <div class="font-size-options">
+              <button type="button" data-font-size="small" aria-pressed="false">小</button>
+              <button type="button" data-font-size="standard" aria-pressed="true">标准</button>
+              <button type="button" data-font-size="large" aria-pressed="false">大</button>
+            </div>
+          </div>
+        </div>
+        <button class="icon-button" id="settingsButton" type="button" aria-label="打开模型设置">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z" />
+            <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.37a1.7 1.7 0 0 0-1 .63 1.7 1.7 0 0 0-.35 1.08V21h-4v-.08A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.23 15a1.7 1.7 0 0 0-.63-1 1.7 1.7 0 0 0-1.08-.35H2v-4h.52A1.7 1.7 0 0 0 4.2 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 8.6 4.23a1.7 1.7 0 0 0 1-.63A1.7 1.7 0 0 0 9.95 2.5V2h4v.52A1.7 1.7 0 0 0 15 4.2a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.37 8c.15.39.38.73.7.99.3.25.7.38 1.09.38H22v4h-.84A1.7 1.7 0 0 0 19.4 15Z" />
+          </svg>
+        </button>
+      </div>
     </header>
 
     <main>
@@ -37,50 +77,23 @@
       </section>
 
       <section class="workspace" id="workspace" hidden>
-        <div class="video-context">
-          <div>
-            <p class="eyebrow" id="channelName">YouTube</p>
-            <h1 id="videoTitle">Untitled video</h1>
-          </div>
-          <div class="language-chip" id="languageChip">中文概要</div>
-        </div>
-
-        <div class="control-deck">
-          <div class="control-status">
-            <span class="status-dot" id="statusDot" aria-hidden="true"></span>
-            <span id="statusText">字幕已就绪</span>
-          </div>
-          <div class="control-actions">
-            <button class="text-button" id="followButton" type="button" aria-pressed="true">
-              跟随播放
-            </button>
-            <button class="primary-button compact" id="processButton" type="button">
-              开始处理
-            </button>
-          </div>
-        </div>
-
-        <section class="summary-section" aria-labelledby="summaryTitle">
-          <div class="summary-heading">
-            <div>
-              <p class="eyebrow">Content map</p>
-              <h2 id="summaryTitle">章节概要</h2>
+        <section class="summary-section" aria-label="章节概要">
+          <div class="summary-runtime" role="status" aria-live="polite">
+            <div class="runtime-status">
+              <span class="status-dot" id="statusDot" aria-hidden="true"></span>
+              <span id="statusText">字幕已就绪</span>
             </div>
             <span class="chapter-count" id="chapterCount">等待处理</span>
           </div>
-          <p class="summary-status" id="summaryStatus">
-            模型会阅读完整字幕，按话题和论证转折划分章节。
-          </p>
           <div class="summary-list" id="summaryList" aria-live="polite"></div>
         </section>
+        <footer class="command-bar" id="commandBar" hidden>
+          <button type="button" id="copyButton">复制概要</button>
+          <span aria-hidden="true"></span>
+          <button type="button" id="exportButton">导出 Markdown</button>
+        </footer>
       </section>
     </main>
-
-    <footer class="command-bar" id="commandBar" hidden>
-      <button type="button" id="copyButton">复制概要</button>
-      <span aria-hidden="true"></span>
-      <button type="button" id="exportButton">导出 Markdown</button>
-    </footer>
 
     <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
     <script src="sidepanel.js"></script>

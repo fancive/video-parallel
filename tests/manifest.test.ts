@@ -23,6 +23,11 @@ test("manifest keeps host access and the side panel scoped to YouTube tabs", asy
   assert.ok(manifest.optional_host_permissions?.includes("https://*/*"));
   assert.ok(!manifest.host_permissions?.includes("<all_urls>"));
   assert.equal(manifest.side_panel, undefined);
-  assert.equal(manifest.commands?.["toggle-side-panel"]?.suggested_key?.default, "Alt+Shift+P");
+  assert.equal(manifest.commands?.["toggle-side-panel"], undefined);
+  assert.equal(manifest.commands?._execute_action?.suggested_key?.default, "Alt+Shift+P");
+  assert.equal(
+    (manifest.commands?._execute_action?.suggested_key as { mac?: string } | undefined)?.mac,
+    "Option+Shift+9",
+  );
   assert.equal(manifest.commands?.["process-video"]?.suggested_key?.default, "Alt+Shift+S");
 });

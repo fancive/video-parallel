@@ -2,6 +2,8 @@ const BUTTON_ID = "video-parallel-trigger";
 const STYLE_ID = "video-parallel-trigger-style";
 let lastUrl = location.href;
 let reconcileTimer: number | undefined;
+let preparedUrl = "";
+let preparation: Promise<boolean> | null = null;
 
 function isWatchPage(): boolean {
   return location.hostname === "www.youtube.com" && location.pathname === "/watch";
@@ -82,14 +84,34 @@ function findToolbar(): Element | null {
   return candidates.map((selector) => document.querySelector(selector)).find(Boolean) ?? null;
 }
 
-function reconcileButton(): void {
+async function preparePanel(): Promise<boolean> {
+  const url = location.href;
+  if (preparedUrl === url) return true;
+  if (preparation) return preparation;
+
+  preparation = chrome.runtime
+    .sendMessage({ type: "PREPARE_PANEL" })
+    .then((response: { ok?: boolean }) => {
+      if (response?.ok && location.href === url) preparedUrl = url;
+      return Boolean(response?.ok);
+    })
+    .catch(() => false)
+    .finally(() => {
+      preparation = null;
+    });
+  return preparation;
+}
+
+async function reconcileButton(): Promise<void> {
   window.clearTimeout(reconcileTimer);
   reconcileTimer = undefined;
 
   if (!isWatchPage()) {
+    preparedUrl = "";
     document.getElementById(BUTTON_ID)?.remove();
     return;
   }
+  if (!(await preparePanel()) || !isWatchPage()) return;
   installStyle();
   const toolbar = findToolbar();
   if (!toolbar) return;
@@ -102,7 +124,7 @@ function reconcileButton(): void {
 
 function scheduleReconcile(): void {
   if (reconcileTimer !== undefined) return;
-  reconcileTimer = window.setTimeout(reconcileButton, 120);
+  reconcileTimer = window.setTimeout(() => void reconcileButton(), 120);
 }
 
 const observer = new MutationObserver(scheduleReconcile);
@@ -116,4 +138,4 @@ window.setInterval(() => {
 }, 500);
 
 document.addEventListener("yt-navigate-finish", scheduleReconcile);
-scheduleReconcile();
+void reconcileButton();

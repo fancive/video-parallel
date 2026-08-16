@@ -1,11 +1,19 @@
 import { buildSummaryMarkdown, sanitizeFilename } from "./lib/markdown";
 import {
+  DEFAULT_PANEL_PREFERENCES,
+  normalizePanelPreferences,
+  PANEL_PREFERENCES_KEY,
+  type PanelFontSize,
+  type PanelPreferences,
+} from "./lib/panel-preferences";
+import {
   DEFAULT_SETTINGS,
   normalizeSettings,
   providerFingerprint,
   SETTINGS_KEY,
   TARGET_LANGUAGE_LABELS,
 } from "./lib/settings";
+import { tabIdFromSidePanelSearch } from "./lib/side-panel";
 import { makeChapterBlocks, SUMMARY_PROMPT_VERSION } from "./lib/summary";
 import { formatTimecode } from "./lib/transcript";
 import type {
@@ -32,21 +40,25 @@ const emptyTitle = element<HTMLElement>("emptyTitle");
 const emptyMessage = element<HTMLElement>("emptyMessage");
 const workspace = element<HTMLElement>("workspace");
 const commandBar = element<HTMLElement>("commandBar");
-const videoTitle = element<HTMLElement>("videoTitle");
-const channelName = element<HTMLElement>("channelName");
-const languageChip = element<HTMLElement>("languageChip");
 const summaryList = element<HTMLElement>("summaryList");
-const summaryStatus = element<HTMLElement>("summaryStatus");
 const chapterCount = element<HTMLElement>("chapterCount");
 const statusDot = element<HTMLElement>("statusDot");
 const statusText = element<HTMLElement>("statusText");
 const processButton = element<HTMLButtonElement>("processButton");
+const processButtonLabel = element<HTMLElement>("processButtonLabel");
 const followButton = element<HTMLButtonElement>("followButton");
+const followButtonLabel = element<HTMLElement>("followButtonLabel");
+const fontSizeButton = element<HTMLButtonElement>("fontSizeButton");
+const fontSizeMenu = element<HTMLElement>("fontSizeMenu");
+const fontSizeOptions = Array.from(
+  fontSizeMenu.querySelectorAll<HTMLButtonElement>("[data-font-size]"),
+);
 const toast = element<HTMLElement>("toast");
 
 let currentVideo: VideoContext | null = null;
 let currentChapters: SummaryBlock[] = [];
 let settings: AppSettings = DEFAULT_SETTINGS;
+let panelPreferences: PanelPreferences = DEFAULT_PANEL_PREFERENCES;
 let activeChapterId = "";
 let playbackTimer: number | undefined;
 let toastTimer: number | undefined;
@@ -55,6 +67,21 @@ let processing = false;
 const hasExtensionRuntime = typeof chrome !== "undefined" && Boolean(chrome.runtime?.id);
 
 element<HTMLButtonElement>("settingsButton").addEventListener("click", openSettings);
+fontSizeButton.addEventListener("click", (event) => {
+  event.stopPropagation();
+  setFontSizeMenuOpen(fontSizeMenu.hasAttribute("hidden"));
+});
+fontSizeMenu.addEventListener("click", (event) => event.stopPropagation());
+for (const option of fontSizeOptions) {
+  option.addEventListener("click", () => {
+    const fontSize = option.dataset.fontSize as PanelFontSize;
+    void setPanelFontSize(fontSize);
+  });
+}
+document.addEventListener("click", () => setFontSizeMenuOpen(false));
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") setFontSizeMenuOpen(false);
+});
 element<HTMLButtonElement>("retryButton").addEventListener("click", () => void loadVideo());
 processButton.addEventListener("click", () => void processVideo());
 followButton.addEventListener("click", toggleFollow);
@@ -63,10 +90,16 @@ element<HTMLButtonElement>("exportButton").addEventListener("click", exportMarkd
 
 if (hasExtensionRuntime) {
   chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName !== "local" || !changes[SETTINGS_KEY]) return;
-    settings = normalizeSettings(changes[SETTINGS_KEY].newValue);
-    updateLanguageLabels();
-    if (currentVideo && !processing) void reloadSummaryCache();
+    if (areaName !== "local") return;
+    if (changes[SETTINGS_KEY]) {
+      settings = normalizeSettings(changes[SETTINGS_KEY].newValue);
+      updateToolbarState();
+      if (currentVideo && !processing) void reloadSummaryCache();
+    }
+    if (changes[PANEL_PREFERENCES_KEY]) {
+      panelPreferences = normalizePanelPreferences(changes[PANEL_PREFERENCES_KEY].newValue);
+      applyPanelPreferences();
+    }
   });
 
   chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
@@ -87,13 +120,18 @@ if (hasExtensionRuntime) {
 
   void boot();
 } else {
+  applyPanelPreferences();
   renderLocalPreview();
 }
 
 async function boot(): Promise<void> {
-  const stored = await chrome.storage.local.get(SETTINGS_KEY);
+  const stored = await chrome.storage.local.get([SETTINGS_KEY, PANEL_PREFERENCES_KEY]);
   settings = normalizeSettings(stored[SETTINGS_KEY] ?? DEFAULT_SETTINGS);
-  updateLanguageLabels();
+  panelPreferences = normalizePanelPreferences(
+    stored[PANEL_PREFERENCES_KEY] ?? DEFAULT_PANEL_PREFERENCES,
+  );
+  applyPanelPreferences();
+  updateToolbarState();
   await loadVideo();
 }
 
@@ -105,9 +143,13 @@ async function consumeProcessRequestAndStart(tabId: number): Promise<void> {
 async function loadVideo(): Promise<void> {
   const generation = ++loadingGeneration;
   stopPlaybackTracking();
+  processButton.disabled = true;
   showState("loading");
   try {
-    const response = await sendMessage({ type: "LOAD_VIDEO" });
+    const response = await sendMessage({
+      type: "LOAD_VIDEO",
+      tabId: tabIdFromSidePanelSearch(window.location.search),
+    });
     if (generation !== loadingGeneration) return;
     if (!response.ok || !response.video) throw new Error(response.error || "无法读取视频。");
 
@@ -135,9 +177,8 @@ async function loadVideo(): Promise<void> {
 
 function renderVideo(): void {
   if (!currentVideo) return;
-  videoTitle.textContent = currentVideo.title;
-  channelName.textContent = currentVideo.channel;
-  updateLanguageLabels();
+  processButton.disabled = false;
+  updateToolbarState();
   renderSummary();
   setStatus(currentChapters.length > 0 ? "概要已从本地缓存恢复" : "字幕已就绪", false);
 }
@@ -151,7 +192,6 @@ async function processVideo(): Promise<void> {
   processButton.disabled = true;
   statusDot.classList.add("is-working");
   setStatus("模型正在识别章节并生成概要", true);
-  summaryStatus.textContent = "正在阅读完整字幕。较长视频可能需要一两分钟。";
 
   try {
     const response = await sendMessage({
@@ -173,10 +213,10 @@ async function processVideo(): Promise<void> {
     setStatus(`已生成 ${chapters.length} 个章节`, false);
     showToast("章节概要已生成并保存在本地");
   } catch (error) {
-    setStatus("处理已暂停", false);
-    summaryStatus.textContent = currentChapters.length
-      ? "上次概要仍然保留，可以重新处理。"
-      : "处理没有完成，请检查模型设置后重试。";
+    setStatus(
+      currentChapters.length ? "处理已暂停，上次概要仍保留" : "处理未完成，请检查模型设置",
+      false,
+    );
     showToast(error instanceof Error ? error.message : String(error));
   } finally {
     processing = false;
@@ -190,9 +230,6 @@ function renderSummary(): void {
   summaryList.replaceChildren();
   chapterCount.textContent =
     currentChapters.length > 0 ? `${currentChapters.length} 章` : "等待处理";
-  summaryStatus.textContent = currentChapters.length
-    ? "章节由模型根据内容转折划分；点击任意卡片跳到对应位置。"
-    : "模型会阅读完整字幕，按话题和论证转折划分章节。";
 
   if (currentChapters.length === 0) {
     const empty = document.createElement("div");
@@ -317,7 +354,7 @@ function summarySourceFingerprint(): string {
 }
 
 function updateProcessButton(): void {
-  processButton.textContent = currentChapters.length ? "重新处理" : "开始处理";
+  processButtonLabel.textContent = currentChapters.length ? "重新处理" : "开始处理";
 }
 
 function ensureProviderConfigured(): boolean {
@@ -372,8 +409,38 @@ async function seekTo(seconds: number): Promise<void> {
 
 function toggleFollow(): void {
   settings = { ...settings, autoFollow: !settings.autoFollow };
-  updateLanguageLabels();
+  updateToolbarState();
   void chrome.storage.local.set({ [SETTINGS_KEY]: settings });
+}
+
+async function setPanelFontSize(fontSize: PanelFontSize): Promise<void> {
+  panelPreferences = normalizePanelPreferences({ fontSize });
+  applyPanelPreferences();
+  setFontSizeMenuOpen(false);
+  if (hasExtensionRuntime) {
+    await chrome.storage.local.set({ [PANEL_PREFERENCES_KEY]: panelPreferences });
+  }
+}
+
+function applyPanelPreferences(): void {
+  document.documentElement.dataset.summaryFontSize = panelPreferences.fontSize;
+  for (const option of fontSizeOptions) {
+    option.setAttribute(
+      "aria-pressed",
+      String(option.dataset.fontSize === panelPreferences.fontSize),
+    );
+  }
+  const labels: Record<PanelFontSize, string> = {
+    small: "小",
+    standard: "标准",
+    large: "大",
+  };
+  fontSizeButton.setAttribute("aria-label", `内容字号：${labels[panelPreferences.fontSize]}`);
+}
+
+function setFontSizeMenuOpen(open: boolean): void {
+  fontSizeMenu.hidden = !open;
+  fontSizeButton.setAttribute("aria-expanded", String(open));
 }
 
 async function copyMarkdown(): Promise<void> {
@@ -416,11 +483,11 @@ function currentMarkdown(): string | null {
   );
 }
 
-function updateLanguageLabels(): void {
-  const target = TARGET_LANGUAGE_LABELS[settings.targetLanguage] ?? settings.targetLanguage;
-  languageChip.textContent = `${target}概要`;
+function updateToolbarState(): void {
   followButton.setAttribute("aria-pressed", String(settings.autoFollow));
-  followButton.textContent = settings.autoFollow ? "跟随播放" : "自由滚动";
+  followButton.setAttribute("aria-label", `跟随播放：${settings.autoFollow ? "已开启" : "已关闭"}`);
+  followButton.title = settings.autoFollow ? "跟随播放已开启" : "自由滚动";
+  followButtonLabel.textContent = settings.autoFollow ? "跟随" : "自由";
 }
 
 function setStatus(message: string, working: boolean): void {

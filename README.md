@@ -12,6 +12,7 @@
 - 让模型根据话题、论证和叙事转折划分章节，不使用固定时间间隔切分。
 - 每章包含标题、2–3 句摘要、关键点和可点击的起止时间。
 - 播放时自动高亮并滚动到当前章节，点击章节卡可跳转视频。
+- 侧面板阅读字号支持小、标准、大三档并保存在本地；YouTube 页面缩放不会改变侧面板字号。
 - 支持 DeepSeek、OpenAI、OpenRouter、Ollama 和自定义 OpenAI-compatible 接口。
 - 支持简体中文、繁体中文、日文、韩文、英文、法文、德文和西班牙文概要。
 - 章节结构与概要按视频、语言、接口、模型和提示词版本独立缓存。
@@ -35,10 +36,12 @@ YouTube caption track
 
 ## 快捷键
 
-- `Alt+Shift+P`：打开或关闭当前 YouTube 视频的侧边栏。
+- macOS `Option+Shift+9`：打开或关闭当前 YouTube 视频的侧边栏；其他平台默认
+  `Alt+Shift+P`。
 - `Alt+Shift+S`：打开侧边栏并开始处理当前视频。
 
-可以在 `chrome://extensions/shortcuts` 修改快捷键。
+可以在 `chrome://extensions/shortcuts` 修改快捷键。更新扩展后如果 Chrome 保留了旧命令绑定，
+请在该页面为“打开或关闭当前视频的概要侧边栏”重新按一次快捷键。
 
 ## 安装
 
@@ -88,7 +91,7 @@ npm run check
 npm run package
 ```
 
-`npm run package` 生成 `release/video-parallel-v0.1.5.zip`。
+`npm run package` 生成 `release/video-parallel-v0.1.14.zip`。
 
 ## 下一步
 
