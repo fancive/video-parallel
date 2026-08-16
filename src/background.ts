@@ -1,7 +1,8 @@
+import type { CompletionResult } from "./lib/provider-client";
 import {
   buildCompletionRequest,
   buildModelListRequest,
-  parseCompletionResponse,
+  parseCompletionResult,
   parseModelListResponse,
   shouldRetryWithoutJsonMode,
 } from "./lib/provider-client";
@@ -25,7 +26,13 @@ import {
   parseJson3Transcript,
   selectCaptionTrack,
 } from "./lib/transcript";
-import type { AppSettings, PlayerSnapshot, TranscriptSegment, VideoContext } from "./lib/types";
+import type {
+  AppSettings,
+  PlayerSnapshot,
+  TokenUsage,
+  TranscriptSegment,
+  VideoContext,
+} from "./lib/types";
 
 const AI_TIMEOUT_MS = 120_000;
 const MODEL_LIST_TIMEOUT_MS = 30_000;
@@ -583,19 +590,24 @@ async function generateSummary(
   segments: TranscriptSegment[],
   targetLanguage: string,
   videoTitle: string,
-): Promise<ReturnType<typeof parseSummaryResponse>> {
+): Promise<ReturnType<typeof parseSummaryResponse> & { usage?: TokenUsage }> {
   validateChapterSegments(segments);
   const settings = await getSettings();
   await assertProviderReady(settings);
 
   let parseError: unknown;
+  let usage: TokenUsage | undefined;
+  let hasCompleteUsage = true;
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const content = await requestAiCompletion(
+    const completion = await requestAiCompletion(
       settings,
       buildSummaryMessages(segments, targetLanguage, videoTitle),
     );
+    if (completion.usage) usage = mergeTokenUsage(usage, completion.usage);
+    else hasCompleteUsage = false;
     try {
-      return parseSummaryResponse(content, segments);
+      const summary = parseSummaryResponse(completion.content, segments);
+      return { ...summary, ...(hasCompleteUsage && usage ? { usage } : {}) };
     } catch (error) {
       parseError = error;
       if (attempt === 0) {
@@ -610,7 +622,7 @@ async function requestAiCompletion(
   settings: AppSettings,
   messages: Array<{ role: "system" | "user"; content: string }>,
   maxOutputTokens?: number,
-): Promise<string> {
+): Promise<CompletionResult> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
   try {
@@ -625,7 +637,7 @@ async function requestAiCompletion(
         if (attempt === 0 && shouldRetryWithoutJsonMode(response.status, text)) continue;
         throw new Error(providerError(text, response.status));
       }
-      return parseCompletionResponse(settings.protocol, text);
+      return parseCompletionResult(settings.protocol, text);
     }
     throw new Error("AI 服务不支持当前 JSON 输出模式。");
   } catch (error) {
@@ -651,7 +663,7 @@ async function listProviderModels(settings: AppSettings): Promise<{ models: stri
 
 async function testProvider(settings: AppSettings): Promise<{ message: string }> {
   await assertProviderReady(settings);
-  const content = await requestAiCompletion(
+  const completion = await requestAiCompletion(
     settings,
     [
       { role: "system", content: 'Return only JSON in this shape: {"ok":true}.' },
@@ -659,10 +671,17 @@ async function testProvider(settings: AppSettings): Promise<{ message: string }>
     ],
     64,
   );
-  if (!/"?ok"?\s*:\s*true/i.test(content)) {
+  if (!/"?ok"?\s*:\s*true/i.test(completion.content)) {
     throw new Error("模型已响应，但没有遵循 JSON 输出要求。");
   }
   return { message: `${settings.model} 连接正常` };
+}
+
+function mergeTokenUsage(current: TokenUsage | undefined, next: TokenUsage): TokenUsage {
+  return {
+    inputTokens: (current?.inputTokens ?? 0) + next.inputTokens,
+    outputTokens: (current?.outputTokens ?? 0) + next.outputTokens,
+  };
 }
 
 async function fetchWithTimeout(

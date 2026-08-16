@@ -4,6 +4,7 @@ import {
   buildCompletionRequest,
   buildModelListRequest,
   parseCompletionResponse,
+  parseCompletionResult,
   parseModelListResponse,
   shouldRetryWithoutJsonMode,
 } from "../src/lib/provider-client";
@@ -23,6 +24,7 @@ test("OpenAI-compatible requests keep the configured endpoint and JSON mode", ()
   assert.equal(request.url, "https://api.groq.com/openai/v1/chat/completions");
   assert.equal(headers.Authorization, "Bearer groq-key");
   assert.deepEqual(body.response_format, { type: "json_object" });
+  assert.equal(body.max_tokens, undefined);
   assert.equal(body.temperature, undefined);
 });
 
@@ -52,6 +54,7 @@ test("Gemini requests use generateContent and native JSON response configuration
   assert.equal(headers["x-goog-api-key"], "gemini-key");
   assert.equal(body.systemInstruction.parts[0].text, "Return JSON.");
   assert.equal(body.generationConfig.responseMimeType, "application/json");
+  assert.equal(body.generationConfig.maxOutputTokens, undefined);
 });
 
 test("completion parsers normalize text from all supported protocols", () => {
@@ -66,6 +69,40 @@ test("completion parsers normalize text from all supported protocols", () => {
   assert.equal(
     parseCompletionResponse("google", '{"candidates":[{"content":{"parts":[{"text":"gemini"}]}}]}'),
     "gemini",
+  );
+});
+
+test("completion parsers preserve actual token usage across provider protocols", () => {
+  assert.deepEqual(
+    parseCompletionResult(
+      "openai-compatible",
+      '{"choices":[{"message":{"content":"openai"}}],"usage":{"prompt_tokens":120,"completion_tokens":30,"total_tokens":150}}',
+    ),
+    { content: "openai", usage: { inputTokens: 120, outputTokens: 30 } },
+  );
+  assert.deepEqual(
+    parseCompletionResult(
+      "anthropic",
+      '{"content":[{"type":"text","text":"claude"}],"usage":{"input_tokens":100,"cache_creation_input_tokens":20,"cache_read_input_tokens":10,"output_tokens":40}}',
+    ),
+    { content: "claude", usage: { inputTokens: 130, outputTokens: 40 } },
+  );
+  assert.deepEqual(
+    parseCompletionResult(
+      "google",
+      '{"candidates":[{"content":{"parts":[{"text":"gemini"}]}}],"usageMetadata":{"promptTokenCount":140,"candidatesTokenCount":35,"thoughtsTokenCount":5,"totalTokenCount":180}}',
+    ),
+    { content: "gemini", usage: { inputTokens: 140, outputTokens: 40 } },
+  );
+});
+
+test("completion parser omits usage when a provider does not report complete counts", () => {
+  assert.deepEqual(
+    parseCompletionResult(
+      "openai-compatible",
+      '{"choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":12}}',
+    ),
+    { content: "ok" },
   );
 });
 

@@ -85,6 +85,11 @@ export interface SummaryBlock {
   content: SummaryContent;
 }
 
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+
 export interface SummaryCache {
   version: 3;
   promptVersion: number;
@@ -94,6 +99,7 @@ export interface SummaryCache {
   sourceFingerprint: string;
   overview: VideoOverview;
   chapters: Array<{ startMs: number; content: SummaryContent }>;
+  usage?: TokenUsage;
   updatedAt: number;
 }
 

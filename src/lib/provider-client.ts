@@ -1,5 +1,5 @@
 import { chatCompletionsUrl, normalizeBaseUrl, providerSupportsJsonMode } from "./settings";
-import type { AppSettings, ProviderProtocol } from "./types";
+import type { AppSettings, ProviderProtocol, TokenUsage } from "./types";
 
 export interface AiMessage {
   role: "system" | "user";
@@ -9,6 +9,11 @@ export interface AiMessage {
 export interface ProviderRequest {
   url: string;
   init: RequestInit;
+}
+
+export interface CompletionResult {
+  content: string;
+  usage?: TokenUsage;
 }
 
 interface CompletionOptions {
@@ -32,6 +37,13 @@ export function buildCompletionRequest(
 }
 
 export function parseCompletionResponse(protocol: ProviderProtocol, responseText: string): string {
+  return parseCompletionResult(protocol, responseText).content;
+}
+
+export function parseCompletionResult(
+  protocol: ProviderProtocol,
+  responseText: string,
+): CompletionResult {
   const parsed = JSON.parse(responseText) as Record<string, unknown>;
   let content = "";
 
@@ -49,7 +61,8 @@ export function parseCompletionResponse(protocol: ProviderProtocol, responseText
   }
 
   if (!content.trim()) throw new Error("AI 服务返回了空内容。");
-  return content.trim();
+  const usage = parseTokenUsage(protocol, parsed);
+  return { content: content.trim(), ...(usage ? { usage } : {}) };
 }
 
 export function buildModelListRequest(settings: AppSettings): ProviderRequest {
@@ -198,6 +211,43 @@ function textParts(value: unknown): string {
       return typeof record?.text === "string" ? [record.text] : [];
     })
     .join("\n");
+}
+
+function parseTokenUsage(
+  protocol: ProviderProtocol,
+  response: Record<string, unknown>,
+): TokenUsage | undefined {
+  if (protocol === "google") {
+    const usage = asRecord(response.usageMetadata);
+    const inputTokens = tokenCount(usage?.promptTokenCount);
+    const candidateTokens = tokenCount(usage?.candidatesTokenCount);
+    if (inputTokens === undefined || candidateTokens === undefined) return undefined;
+    const thinkingTokens = tokenCount(usage?.thoughtsTokenCount) ?? 0;
+    return { inputTokens, outputTokens: candidateTokens + thinkingTokens };
+  }
+
+  const usage = asRecord(response.usage);
+  if (protocol === "anthropic") {
+    const directInputTokens = tokenCount(usage?.input_tokens);
+    const outputTokens = tokenCount(usage?.output_tokens);
+    if (directInputTokens === undefined || outputTokens === undefined) return undefined;
+    const cacheCreationTokens = tokenCount(usage?.cache_creation_input_tokens) ?? 0;
+    const cacheReadTokens = tokenCount(usage?.cache_read_input_tokens) ?? 0;
+    return {
+      inputTokens: directInputTokens + cacheCreationTokens + cacheReadTokens,
+      outputTokens,
+    };
+  }
+
+  const inputTokens = tokenCount(usage?.prompt_tokens);
+  const outputTokens = tokenCount(usage?.completion_tokens);
+  return inputTokens === undefined || outputTokens === undefined
+    ? undefined
+    : { inputTokens, outputTokens };
+}
+
+function tokenCount(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

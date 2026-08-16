@@ -2,11 +2,26 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   chatCompletionsUrl,
+  DEFAULT_SETTINGS,
   normalizeSettings,
+  PROVIDER_PRESETS,
   providerFingerprint,
   providerOriginPattern,
   providerRequiresApiKey,
 } from "../src/lib/settings";
+
+test("DeepSeek defaults and retired aliases migrate to V4 Flash", () => {
+  assert.equal(DEFAULT_SETTINGS.model, "deepseek-v4-flash");
+  assert.deepEqual(PROVIDER_PRESETS.deepseek.models, ["deepseek-v4-flash", "deepseek-v4-pro"]);
+  assert.equal(
+    normalizeSettings({ provider: "deepseek", model: "deepseek-chat" }).model,
+    "deepseek-v4-flash",
+  );
+  assert.equal(
+    normalizeSettings({ provider: "deepseek", model: "deepseek-reasoner" }).model,
+    "deepseek-v4-flash",
+  );
+});
 
 test("normalizeSettings rejects insecure non-local endpoints", () => {
   assert.throws(() => normalizeSettings({ baseUrl: "http://example.com/v1" }), /必须使用 https/);

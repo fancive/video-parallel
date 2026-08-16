@@ -361,6 +361,21 @@ main { min-height: calc(100vh - 48px); }
   white-space: nowrap;
 }
 
+.runtime-meta {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.token-usage {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10px;
+  opacity: 0.68;
+  white-space: nowrap;
+}
+
 .summary-list { display: grid; gap: 12px; }
 
 .summary-empty {

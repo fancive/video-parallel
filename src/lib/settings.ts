@@ -33,15 +33,27 @@ export function normalizeSettings(input: unknown): AppSettings {
       ? (value.protocol as ProviderProtocol)
       : DEFAULT_SETTINGS.protocol;
 
+  const model = migrateRetiredModel(
+    provider,
+    String(value.model ?? preset?.model ?? DEFAULT_SETTINGS.model).trim(),
+  );
+
   return {
     provider,
     protocol,
     baseUrl: normalizeBaseUrl(value.baseUrl ?? preset?.baseUrl ?? DEFAULT_SETTINGS.baseUrl),
-    model: String(value.model ?? preset?.model ?? DEFAULT_SETTINGS.model).trim(),
+    model,
     apiKey: String(value.apiKey ?? "").trim(),
     targetLanguage: String(value.targetLanguage ?? DEFAULT_SETTINGS.targetLanguage).trim(),
     autoFollow: value.autoFollow !== false,
   };
+}
+
+function migrateRetiredModel(provider: ProviderId, model: string): string {
+  if (provider === "deepseek" && (model === "deepseek-chat" || model === "deepseek-reasoner")) {
+    return "deepseek-v4-flash";
+  }
+  return model;
 }
 
 export function normalizeBaseUrl(input: string): string {

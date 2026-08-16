@@ -23,6 +23,7 @@ import type {
   SummaryBlock,
   SummaryCache,
   SummaryContent,
+  TokenUsage,
   VideoContext,
   VideoOverview,
 } from "./lib/types";
@@ -34,6 +35,7 @@ interface RuntimeResponse {
   seconds?: number;
   overview?: VideoOverview;
   chapters?: ChapterOutline[];
+  usage?: TokenUsage;
   start?: boolean;
 }
 
@@ -47,6 +49,7 @@ const summaryList = element<HTMLElement>("summaryList");
 const chapterCount = element<HTMLElement>("chapterCount");
 const statusDot = element<HTMLElement>("statusDot");
 const statusText = element<HTMLElement>("statusText");
+const tokenUsage = element<HTMLElement>("tokenUsage");
 const processButton = element<HTMLButtonElement>("processButton");
 const processButtonLabel = element<HTMLElement>("processButtonLabel");
 const followButton = element<HTMLButtonElement>("followButton");
@@ -61,6 +64,7 @@ const toast = element<HTMLElement>("toast");
 let currentVideo: VideoContext | null = null;
 let currentOverview: VideoOverview | null = null;
 let currentChapters: SummaryBlock[] = [];
+let currentTokenUsage: TokenUsage | null = null;
 let settings: AppSettings = DEFAULT_SETTINGS;
 let panelPreferences: PanelPreferences = DEFAULT_PANEL_PREFERENCES;
 let activeChapterId = "";
@@ -160,6 +164,7 @@ async function loadVideo(): Promise<void> {
     currentVideo = response.video;
     currentOverview = null;
     currentChapters = [];
+    currentTokenUsage = null;
     await restoreSummaryCache();
     renderVideo();
     showState("workspace");
@@ -175,6 +180,7 @@ async function loadVideo(): Promise<void> {
     currentVideo = null;
     currentOverview = null;
     currentChapters = [];
+    currentTokenUsage = null;
     emptyTitle.textContent = "还不能生成视频概要";
     emptyMessage.textContent = error instanceof Error ? error.message : String(error);
     showState("empty");
@@ -215,6 +221,7 @@ async function processVideo(): Promise<void> {
     if (chapters.length === 0) throw new Error("模型没有返回可显示的章节。");
     currentOverview = response.overview;
     currentChapters = chapters;
+    currentTokenUsage = isTokenUsage(response.usage) ? response.usage : null;
     await saveSummaryCache();
     renderSummary();
     setStatus(`已生成全文要点和 ${chapters.length} 个章节`, false);
@@ -235,6 +242,7 @@ async function processVideo(): Promise<void> {
 
 function renderSummary(): void {
   summaryList.replaceChildren();
+  renderTokenUsage();
   chapterCount.textContent =
     currentChapters.length > 0 ? `${currentChapters.length} 章` : "等待处理";
 
@@ -339,6 +347,7 @@ function createOverviewCard(overview: VideoOverview): HTMLElement {
 async function reloadSummaryCache(): Promise<void> {
   currentOverview = null;
   currentChapters = [];
+  currentTokenUsage = null;
   await restoreSummaryCache();
   renderSummary();
   setStatus(currentChapters.length ? "已载入当前设置的概要缓存" : "字幕已就绪", false);
@@ -371,6 +380,7 @@ async function restoreSummaryCache(): Promise<void> {
   if (outline[0]?.startSegmentId !== currentVideo.segments[0]?.id) return;
   currentOverview = cache.overview;
   currentChapters = makeChapterBlocks(currentVideo.segments, outline);
+  currentTokenUsage = isTokenUsage(cache.usage) ? cache.usage : null;
 }
 
 async function saveSummaryCache(): Promise<void> {
@@ -384,6 +394,7 @@ async function saveSummaryCache(): Promise<void> {
     sourceFingerprint: summarySourceFingerprint(),
     overview: currentOverview,
     chapters: currentChapters.map(({ startMs, content }) => ({ startMs, content })),
+    ...(currentTokenUsage ? { usage: currentTokenUsage } : {}),
     updatedAt: Date.now(),
   };
   await chrome.storage.local.set({ [summaryCacheKey()]: cache });
@@ -405,6 +416,20 @@ function summarySourceFingerprint(): string {
 
 function updateProcessButton(): void {
   processButtonLabel.textContent = currentChapters.length ? "重新处理" : "开始处理";
+}
+
+function renderTokenUsage(): void {
+  if (!currentTokenUsage) {
+    tokenUsage.hidden = true;
+    tokenUsage.textContent = "";
+    return;
+  }
+  tokenUsage.textContent = `输入 ${formatTokenCount(currentTokenUsage.inputTokens)} · 输出 ${formatTokenCount(currentTokenUsage.outputTokens)} tokens`;
+  tokenUsage.hidden = false;
+}
+
+function formatTokenCount(value: number): string {
+  return value.toLocaleString("zh-CN");
 }
 
 function ensureProviderConfigured(): boolean {
@@ -601,6 +626,17 @@ function isVideoOverview(value: unknown): value is VideoOverview {
     Array.isArray(overview.keyPoints) &&
     overview.keyPoints.length > 0 &&
     overview.keyPoints.every((point) => typeof point === "string" && Boolean(point.trim()))
+  );
+}
+
+function isTokenUsage(value: unknown): value is TokenUsage {
+  if (!value || typeof value !== "object") return false;
+  const usage = value as Partial<TokenUsage>;
+  return (
+    Number.isSafeInteger(usage.inputTokens) &&
+    Number(usage.inputTokens) >= 0 &&
+    Number.isSafeInteger(usage.outputTokens) &&
+    Number(usage.outputTokens) >= 0
   );
 }
 
