@@ -1,7 +1,7 @@
 import { TARGET_LANGUAGE_LABELS } from "./settings";
 import type { ChapterOutline, SummaryBlock, TranscriptSegment, VideoOverview } from "./types";
 
-export const SUMMARY_PROMPT_VERSION = 4;
+export const SUMMARY_PROMPT_VERSION = 5;
 export const MAX_CHAPTER_TRANSCRIPT_SEGMENTS = 2000;
 export const MAX_CHAPTER_TRANSCRIPT_CHARACTERS = 100_000;
 export const MAX_CHAPTERS = 16;
@@ -25,7 +25,7 @@ export function buildSummaryMessages(
     {
       role: "system",
       content: [
-        `Analyze the complete YouTube transcript. The required output language is ${language}.`,
+        `Analyze the complete video transcript. The required output language is ${language}.`,
         languageInstruction,
         `Every user-facing JSON string value must be written in ${language}, including overview.summary, every overview.keyPoints item, and every chapter title, summary, and keyPoints item.`,
         "Do not switch back to the transcript language or the language used in these instructions. Proper names, product names, code, and exact quotations may remain unchanged when necessary.",

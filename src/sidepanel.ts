@@ -27,6 +27,7 @@ import type {
   VideoContext,
   VideoOverview,
 } from "./lib/types";
+import { summaryCacheStorageKey } from "./lib/video-source";
 
 interface RuntimeResponse {
   ok: boolean;
@@ -215,7 +216,7 @@ async function processVideo(): Promise<void> {
     if (!response.ok || !response.overview || !response.chapters) {
       throw new Error(response.error || "章节概要生成失败。");
     }
-    if (currentVideo?.videoId !== video.videoId) return;
+    if (currentVideo?.sourceKey !== video.sourceKey) return;
 
     const chapters = makeChapterBlocks(video.segments, response.chapters);
     if (chapters.length === 0) throw new Error("模型没有返回可显示的章节。");
@@ -359,9 +360,9 @@ async function restoreSummaryCache(): Promise<void> {
   const stored = await chrome.storage.local.get(key);
   const cache = stored[key] as SummaryCache | undefined;
   if (
-    cache?.version !== 3 ||
+    cache?.version !== 4 ||
     cache.promptVersion !== SUMMARY_PROMPT_VERSION ||
-    cache.videoId !== currentVideo.videoId ||
+    cache.sourceKey !== currentVideo.sourceKey ||
     cache.targetLanguage !== settings.targetLanguage ||
     cache.providerFingerprint !== providerFingerprint(settings) ||
     cache.sourceFingerprint !== summarySourceFingerprint() ||
@@ -386,9 +387,9 @@ async function restoreSummaryCache(): Promise<void> {
 async function saveSummaryCache(): Promise<void> {
   if (!currentVideo || !currentOverview) return;
   const cache: SummaryCache = {
-    version: 3,
+    version: 4,
     promptVersion: SUMMARY_PROMPT_VERSION,
-    videoId: currentVideo.videoId,
+    sourceKey: currentVideo.sourceKey,
     targetLanguage: settings.targetLanguage,
     providerFingerprint: providerFingerprint(settings),
     sourceFingerprint: summarySourceFingerprint(),
@@ -402,8 +403,12 @@ async function saveSummaryCache(): Promise<void> {
 
 function summaryCacheKey(): string {
   if (!currentVideo) return "video_parallel_summary_empty";
-  const fingerprint = `${currentVideo.videoId}|${settings.targetLanguage}|${providerFingerprint(settings)}|${SUMMARY_PROMPT_VERSION}`;
-  return `video_parallel_summary_${currentVideo.videoId}_${hashString(fingerprint)}`;
+  return summaryCacheStorageKey(
+    currentVideo,
+    settings.targetLanguage,
+    providerFingerprint(settings),
+    SUMMARY_PROMPT_VERSION,
+  );
 }
 
 function summarySourceFingerprint(): string {
@@ -550,7 +555,7 @@ function currentMarkdown(): string | null {
     {
       title: currentVideo.title,
       channel: currentVideo.channel,
-      url: `https://www.youtube.com/watch?v=${currentVideo.videoId}`,
+      url: currentVideo.sourceUrl,
       sourceLanguage: currentVideo.sourceLanguage,
       summaryLanguage: TARGET_LANGUAGE_LABELS[settings.targetLanguage] ?? settings.targetLanguage,
     },
@@ -647,7 +652,10 @@ async function sendMessage(message: Record<string, unknown>): Promise<RuntimeRes
 function renderLocalPreview(): void {
   currentVideo = {
     tabId: 1,
+    platform: "youtube",
     videoId: "preview",
+    sourceKey: "youtube:preview",
+    sourceUrl: "https://www.youtube.com/watch?v=preview",
     title: "How context becomes infrastructure for AI agents",
     channel: "video-parallel preview",
     durationSeconds: 302,

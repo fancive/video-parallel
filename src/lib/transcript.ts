@@ -20,6 +20,16 @@ interface RawCaption {
   text: string;
 }
 
+interface BilibiliCaption {
+  from?: number;
+  to?: number;
+  content?: string;
+}
+
+interface BilibiliSubtitlePayload {
+  body?: unknown[];
+}
+
 const SENTENCE_END = /[.!?。！？…]["'”’）)]?$/u;
 const CLAUSE_END = /[,;:，；：]["'”’）)]?$/u;
 
@@ -83,6 +93,64 @@ export function parseJson3Transcript(payload: unknown): TranscriptSegment[] {
   return groupCaptions(raw);
 }
 
+export function bilibiliSubtitleUrl(baseUrl: string): string {
+  const absoluteUrl = baseUrl.startsWith("//") ? `https:${baseUrl}` : baseUrl;
+  const url = new URL(absoluteUrl);
+  if (url.protocol === "http:") url.protocol = "https:";
+  if (
+    url.protocol !== "https:" ||
+    (url.hostname !== "i0.hdslb.com" && url.hostname !== "aisubtitle.hdslb.com") ||
+    url.username ||
+    url.password ||
+    url.port ||
+    !/^\/bfs\/(?:ai_)?subtitle\//.test(url.pathname)
+  ) {
+    throw new Error("字幕地址不是受支持的 Bilibili 接口。");
+  }
+  return url.toString();
+}
+
+export function parseBilibiliText(responseText: string): unknown {
+  const text = responseText.trim();
+  if (!text) {
+    throw new Error("Bilibili 字幕接口返回了空响应，请刷新视频页面后重试。");
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error("Bilibili 字幕响应格式无法解析，请刷新视频页面后重试。");
+  }
+}
+
+export function parseBilibiliTranscript(payload: unknown): TranscriptSegment[] {
+  const data = payload as BilibiliSubtitlePayload;
+  if (!Array.isArray(data?.body)) return [];
+
+  return data.body
+    .flatMap((value) => {
+      if (!value || typeof value !== "object") return [];
+      const caption = value as BilibiliCaption;
+      const from = Number(caption.from);
+      const to = Number(caption.to);
+      const text = cleanCaptionText(typeof caption.content === "string" ? caption.content : "");
+      if (!Number.isFinite(from) || !Number.isFinite(to) || from < 0 || to < from || !text) {
+        return [];
+      }
+      return [
+        {
+          startMs: Math.round(from * 1000),
+          durationMs: Math.max(0, Math.round((to - from) * 1000)),
+          text,
+        },
+      ];
+    })
+    .sort((left, right) => left.startMs - right.startMs)
+    .map((caption, index) => ({
+      id: `s${index}-${Math.floor(caption.startMs)}`,
+      ...caption,
+    }));
+}
+
 export function groupCaptions(raw: RawCaption[]): TranscriptSegment[] {
   const result: TranscriptSegment[] = [];
   let buffer: RawCaption[] = [];
@@ -132,17 +200,6 @@ export function formatTimecode(startMs: number): string {
     return `${hours}:${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`;
   }
   return `${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`;
-}
-
-export function extractVideoId(urlValue: string): string | null {
-  try {
-    const url = new URL(urlValue);
-    if (url.hostname !== "www.youtube.com" || url.pathname !== "/watch") return null;
-    const videoId = url.searchParams.get("v")?.trim() ?? "";
-    return /^[A-Za-z0-9_-]{6,20}$/.test(videoId) ? videoId : null;
-  } catch {
-    return null;
-  }
 }
 
 function finiteNumber(input: unknown): number {

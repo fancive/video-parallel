@@ -4,7 +4,7 @@
 
 ### Watch the video. Read the structure.
 
-Turn native YouTube captions into a full-video overview and semantic AI chapter summaries that stay in sync with playback.
+Turn YouTube and Bilibili captions into a full-video overview and semantic AI chapter summaries that stay in sync with playback.
 
 [![Latest release](https://img.shields.io/github/v/release/fancive/video-parallel?display_name=tag&sort=semver&style=flat-square&color=f05b43)](https://github.com/fancive/video-parallel/releases/latest) [![CI](https://github.com/fancive/video-parallel/actions/workflows/ci.yml/badge.svg)](https://github.com/fancive/video-parallel/actions/workflows/ci.yml) [![Chrome 116+](https://img.shields.io/badge/Chrome-116%2B-2f59ff?style=flat-square&logo=googlechrome&logoColor=white)](#requirements) [![Manifest V3](https://img.shields.io/badge/Manifest-V3-15212b?style=flat-square)](public/manifest.json) [![Local-first](https://img.shields.io/badge/data-local--first-008f7c?style=flat-square)](PRIVACY.md) [![MIT License](https://img.shields.io/github/license/fancive/video-parallel?style=flat-square)](LICENSE)
 
@@ -24,9 +24,9 @@ Turn native YouTube captions into a full-video overview and semantic AI chapter 
 | --- | --- | --- |
 | Start with the video's main conclusions, then follow topic, argument, and narrative transitions instead of fixed intervals. | The active chapter follows playback, and every timestamp is a seek target. | Use OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter, Ollama, or another supported endpoint without a developer-operated backend. |
 
-The extension reads caption tracks already available on YouTube. It does not upload audio or depend
-on a transcript proxy. The complete transcript is sent to your configured provider only when you
-explicitly click **Process video**.
+The extension reads caption tracks already available on YouTube and Bilibili. It does not upload
+audio or depend on a transcript proxy. The complete transcript is sent to your configured provider
+only when you explicitly click **Process video**.
 
 ## Install from GitHub Release
 
@@ -57,7 +57,12 @@ Then load the generated build:
 4. Open the extension settings, choose a Provider, and add its API Key. Click **Fetch available
    models**, choose one from the Model dropdown, or enter a Model ID manually; then use **Test
    connection** before saving.
-5. Visit a standard YouTube `watch` page with captions and click **Summary** in the video action bar.
+5. Visit a standard YouTube `watch` page or Bilibili `/video/BV...` page with captions, then click
+   **Summary** in the video action bar.
+
+Bilibili exposes caption-track URLs only to signed-in viewers. Sign in to Bilibili in the same
+browser profile before reading a Bilibili video; the extension uses that existing page session but
+does not read or store cookie values.
 
 For a local Ollama server, use `http://localhost:11434/v1` and leave the API Key empty.
 
@@ -66,7 +71,7 @@ For a local Ollama server, use `http://localhost:11434/v1` and leave the API Key
 - A full-video overview followed by a title, concise summary, key points, and clickable time range
   for every semantic chapter.
 - Automatic active-chapter highlighting and scrolling during playback.
-- Small, standard, and large Side Panel reading sizes independent of YouTube page zoom.
+- Small, standard, and large Side Panel reading sizes independent of the video page zoom.
 - Full-video takeaways and chapter summaries consistently written in the selected output language:
   Simplified Chinese, Traditional Chinese, Japanese, Korean, English, French, German, or Spanish.
 - Separate caches by video, language, endpoint, model, and prompt version.
@@ -76,7 +81,7 @@ For a local Ollama server, use `http://localhost:11434/v1` and leave the API Key
 ## How it works
 
 ```text
-YouTube caption track
+YouTube or Bilibili caption track
         ↓
 Complete transcript + stable segment IDs + timestamps
         ↓
@@ -124,10 +129,11 @@ configured origin.
 
 Permissions are deliberately scoped:
 
-- YouTube host access reads video metadata, caption tracks, and playback time.
+- YouTube and Bilibili host access reads video metadata, caption tracks, and playback time on their
+  standard video pages.
 - `sidePanel` displays the chapter-summary workspace.
 - `storage` keeps settings, Keys, and summary caches locally.
-- `tabs` and `scripting` read player state and seek playback in the target YouTube tab.
+- `tabs` and `scripting` read player state and seek playback in the target video tab.
 - AI endpoint access is optional and requested for the configured origin when settings are saved.
 
 Read the complete [Privacy Policy](PRIVACY.md) and [Security Policy](SECURITY.md) before processing
@@ -146,13 +152,14 @@ Shortcuts can be customized at `chrome://extensions/shortcuts`.
 ## Requirements
 
 - Chrome 116 or later.
-- A standard `youtube.com/watch` page with a readable native or automatically generated caption
-  track.
+- A standard `youtube.com/watch` or `bilibili.com/video/BV...` page with a readable native or
+  automatically generated caption track.
+- A signed-in Bilibili session when processing Bilibili captions.
 - A supported AI endpoint: OpenAI-compatible `/chat/completions`, Anthropic `/messages`, or Gemini
   `generateContent`. Models that cannot reliably return the requested JSON summary are rejected.
 
-Shorts, live streams, local ASR, and audio-upload transcription are not currently supported. Chrome
-Web Store installation and automatic updates are not available yet.
+YouTube Shorts, live streams, Bilibili bangumi pages, local ASR, and audio-upload transcription are
+not currently supported. Chrome Web Store installation and automatic updates are not available yet.
 
 ## Development
 
@@ -180,7 +187,7 @@ npm run package
 
 - Add hierarchical model-driven chaptering for long videos.
 - Reuse native video chapters and allow manual adjustment of model-selected boundaries.
-- Add real YouTube end-to-end coverage with Playwright and Chrome extension mode.
+- Add real YouTube and Bilibili end-to-end coverage with Playwright and Chrome extension mode.
 - Publish a Chrome Web Store release with automatic updates.
 
 ## License

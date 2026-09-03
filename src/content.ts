@@ -1,13 +1,12 @@
+import type { VideoPlatform } from "./lib/types";
+import { detectVideoPage } from "./lib/video-source";
+
 const BUTTON_ID = "video-parallel-trigger";
 const STYLE_ID = "video-parallel-trigger-style";
 let lastUrl = location.href;
 let reconcileTimer: number | undefined;
-let preparedUrl = "";
+let preparedSourceKey = "";
 let preparation: Promise<boolean> | null = null;
-
-function isWatchPage(): boolean {
-  return location.hostname === "www.youtube.com" && location.pathname === "/watch";
-}
 
 function installStyle(): void {
   if (document.getElementById(STYLE_ID)) return;
@@ -31,6 +30,18 @@ function installStyle(): void {
     }
     #${BUTTON_ID}:hover { background: var(--yt-spec-button-chip-background-hover, rgba(0, 0, 0, .1)); }
     #${BUTTON_ID}:focus-visible { outline: 2px solid #2f59ff; outline-offset: 2px; }
+    #${BUTTON_ID}[data-platform="bilibili"] {
+      height: 30px;
+      margin-left: 18px;
+      border-color: rgba(24, 25, 28, .16);
+      color: #61666d;
+      background: transparent;
+      font-family: Arial, "Microsoft YaHei", sans-serif;
+    }
+    #${BUTTON_ID}[data-platform="bilibili"]:hover {
+      color: #00aeec;
+      background: rgba(0, 174, 236, .08);
+    }
     #${BUTTON_ID} .vp-mark {
       position: relative;
       display: inline-grid;
@@ -55,10 +66,11 @@ function installStyle(): void {
   document.head.appendChild(style);
 }
 
-function createButton(): HTMLButtonElement {
+function createButton(platform: VideoPlatform): HTMLButtonElement {
   const button = document.createElement("button");
   button.id = BUTTON_ID;
   button.type = "button";
+  button.dataset.platform = platform;
   button.setAttribute("aria-label", "在 video-parallel 中查看章节概要");
 
   const mark = document.createElement("span");
@@ -75,24 +87,31 @@ function createButton(): HTMLButtonElement {
   return button;
 }
 
-function findToolbar(): Element | null {
-  const candidates = [
-    "ytd-watch-metadata #actions-inner",
-    "ytd-watch-metadata #menu-container",
-    "#above-the-fold #actions-inner",
-  ];
+function findToolbar(platform: VideoPlatform): Element | null {
+  const candidates =
+    platform === "youtube"
+      ? [
+          "ytd-watch-metadata #actions-inner",
+          "ytd-watch-metadata #menu-container",
+          "#above-the-fold #actions-inner",
+        ]
+      : [".video-toolbar-left-main", ".video-toolbar-left", ".video-toolbar-container"];
   return candidates.map((selector) => document.querySelector(selector)).find(Boolean) ?? null;
 }
 
 async function preparePanel(): Promise<boolean> {
-  const url = location.href;
-  if (preparedUrl === url) return true;
+  const page = detectVideoPage(location.href);
+  if (!page) return false;
+  const sourceKey = page.sourceKey;
+  if (preparedSourceKey === sourceKey) return true;
   if (preparation) return preparation;
 
   preparation = chrome.runtime
     .sendMessage({ type: "PREPARE_PANEL" })
     .then((response: { ok?: boolean }) => {
-      if (response?.ok && location.href === url) preparedUrl = url;
+      if (response?.ok && detectVideoPage(location.href)?.sourceKey === sourceKey) {
+        preparedSourceKey = sourceKey;
+      }
       return Boolean(response?.ok);
     })
     .catch(() => false)
@@ -106,20 +125,22 @@ async function reconcileButton(): Promise<void> {
   window.clearTimeout(reconcileTimer);
   reconcileTimer = undefined;
 
-  if (!isWatchPage()) {
-    preparedUrl = "";
+  const page = detectVideoPage(location.href);
+  if (!page) {
+    preparedSourceKey = "";
     document.getElementById(BUTTON_ID)?.remove();
     return;
   }
-  if (!(await preparePanel()) || !isWatchPage()) return;
+  if (!(await preparePanel()) || detectVideoPage(location.href)?.sourceKey !== page.sourceKey)
+    return;
   installStyle();
-  const toolbar = findToolbar();
+  const toolbar = findToolbar(page.platform);
   if (!toolbar) return;
 
   const current = document.getElementById(BUTTON_ID);
   if (current?.parentElement === toolbar) return;
   current?.remove();
-  toolbar.appendChild(createButton());
+  toolbar.appendChild(createButton(page.platform));
 }
 
 function scheduleReconcile(): void {

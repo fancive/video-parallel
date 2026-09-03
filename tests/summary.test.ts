@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildSummaryMessages, makeChapterBlocks, parseSummaryResponse } from "../src/lib/summary";
+import {
+  buildSummaryMessages,
+  makeChapterBlocks,
+  parseSummaryResponse,
+  SUMMARY_PROMPT_VERSION,
+} from "../src/lib/summary";
 import type { TranscriptSegment } from "../src/lib/types";
 
 const segments: TranscriptSegment[] = [
@@ -10,9 +15,11 @@ const segments: TranscriptSegment[] = [
   { id: "s3", startMs: 105_000, durationMs: 25_000, text: "The argument concludes." },
 ];
 
-test("chapter prompt gives the complete transcript to the model and rejects interval splitting", () => {
+test("chapter prompt is platform-neutral and rejects interval splitting", () => {
   const messages = buildSummaryMessages(segments, "zh-CN", "A useful video");
-  assert.match(messages[0]?.content ?? "", /complete YouTube transcript/);
+  assert.equal(SUMMARY_PROMPT_VERSION, 5);
+  assert.match(messages[0]?.content ?? "", /complete video transcript/);
+  assert.doesNotMatch(messages[0]?.content ?? "", /YouTube|Bilibili/i);
   assert.match(messages[0]?.content ?? "", /Do not split at equal time intervals/);
   assert.match(messages[0]?.content ?? "", /3-5 key takeaways/);
   assert.match(messages[0]?.content ?? "", /所有面向用户的文本都必须使用简体中文/);

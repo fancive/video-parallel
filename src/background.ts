@@ -20,8 +20,10 @@ import {
   parseSummaryResponse,
 } from "./lib/summary";
 import {
-  extractVideoId,
+  bilibiliSubtitleUrl,
   json3CaptionUrl,
+  parseBilibiliText,
+  parseBilibiliTranscript,
   parseJson3Text,
   parseJson3Transcript,
   selectCaptionTrack,
@@ -32,7 +34,9 @@ import type {
   TokenUsage,
   TranscriptSegment,
   VideoContext,
+  VideoPage,
 } from "./lib/types";
+import { detectVideoPage } from "./lib/video-source";
 
 const AI_TIMEOUT_MS = 120_000;
 const MODEL_LIST_TIMEOUT_MS = 30_000;
@@ -53,6 +57,17 @@ interface CaptionFetchResult {
   error: string;
 }
 
+interface BilibiliPlayerSnapshot extends PlayerSnapshot {
+  contentId: string;
+  loggedIn: boolean;
+}
+
+interface BilibiliSnapshotResult {
+  ok: boolean;
+  error: string;
+  snapshot: BilibiliPlayerSnapshot | null;
+}
+
 const pendingProcessTabs = new Set<number>();
 
 void chrome.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" }).catch(() => {});
@@ -70,7 +85,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 chrome.commands.onCommand.addListener((command, tab) => {
   if (command !== "process-video") return;
   const tabId = tab?.id;
-  if (!tabId || !extractVideoId(tab.url ?? "")) return;
+  if (!tabId || !detectVideoPage(tab.url ?? "")) return;
 
   pendingProcessTabs.add(tabId);
   void openTabSidePanel(chrome.sidePanel, tabId)
@@ -86,8 +101,8 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
 
   if (type === "OPEN_PANEL") {
     const tabId = sender.tab?.id;
-    if (!tabId || !extractVideoId(sender.tab?.url ?? "")) {
-      sendResponse({ ok: false, error: "找不到当前 YouTube 标签页。" });
+    if (!tabId || !detectVideoPage(sender.tab?.url ?? "")) {
+      sendResponse({ ok: false, error: "找不到当前受支持的视频标签页。" });
       return false;
     }
     openTabSidePanel(chrome.sidePanel, tabId)
@@ -99,8 +114,8 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
   if (type === "PREPARE_PANEL") {
     const tabId = sender.tab?.id;
     const url = sender.tab?.url ?? "";
-    if (!tabId || !extractVideoId(url)) {
-      sendResponse({ ok: false, error: "找不到当前 YouTube 标签页。" });
+    if (!tabId || !detectVideoPage(url)) {
+      sendResponse({ ok: false, error: "找不到当前受支持的视频标签页。" });
       return false;
     }
     configureSidePanelForTab(tabId, url)
@@ -178,7 +193,7 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
 });
 
 async function configureSidePanelForTab(tabId: number, url: string): Promise<void> {
-  const enabled = extractVideoId(url) !== null;
+  const enabled = detectVideoPage(url) !== null;
   await chrome.sidePanel.setOptions(
     enabled ? { tabId, path: sidePanelPath(tabId), enabled: true } : { tabId, enabled: false },
   );
@@ -189,10 +204,18 @@ function isWebUrl(url: string): boolean {
 }
 
 async function loadVideoForTab(tabId: number): Promise<VideoContext> {
-  await assertYouTubeTab(tabId);
+  const page = await assertVideoTab(tabId);
+  return page.platform === "youtube"
+    ? loadYouTubeVideo(tabId, page)
+    : loadBilibiliVideo(tabId, page);
+}
 
-  const snapshot = await readPlayerSnapshot(tabId);
+async function loadYouTubeVideo(tabId: number, page: VideoPage): Promise<VideoContext> {
+  const snapshot = await readYouTubePlayerSnapshot(tabId);
   if (!snapshot) throw new Error("无法读取 YouTube 播放器信息，请刷新页面后重试。");
+  if (snapshot.videoId !== page.videoId) {
+    throw new Error("YouTube 播放器仍在切换视频，请稍后重试。");
+  }
   const track = selectCaptionTrack(snapshot.tracks, "en");
   if (!track) throw new Error("这个视频没有可读取的原生字幕轨道。");
 
@@ -207,13 +230,217 @@ async function loadVideoForTab(tabId: number): Promise<VideoContext> {
 
   return {
     tabId,
+    platform: page.platform,
     videoId: snapshot.videoId,
+    sourceKey: page.sourceKey,
+    sourceUrl: page.sourceUrl,
     title: snapshot.title,
     channel: snapshot.channel,
     durationSeconds: snapshot.durationSeconds,
     sourceLanguage: track.languageCode,
     segments,
   };
+}
+
+async function loadBilibiliVideo(tabId: number, page: VideoPage): Promise<VideoContext> {
+  const snapshot = await readBilibiliPlayerSnapshot(tabId, page);
+  const track = selectCaptionTrack(snapshot.tracks, "zh");
+  if (!track) {
+    throw new Error(
+      snapshot.loggedIn
+        ? "这个视频没有可读取的 Bilibili CC 字幕。"
+        : "Bilibili 需要登录后才会返回字幕轨道；请先登录，如果仍为空则该视频没有 CC 字幕。",
+    );
+  }
+
+  const payload = await fetchBilibiliCaptionPayload(tabId, track.baseUrl);
+  const segments = parseBilibiliTranscript(payload);
+  if (segments.length === 0) throw new Error("Bilibili 字幕轨道存在，但没有返回可显示的内容。");
+
+  return {
+    tabId,
+    platform: page.platform,
+    videoId: snapshot.videoId,
+    sourceKey: `bilibili:${snapshot.videoId}:cid${snapshot.contentId}`,
+    sourceUrl: page.sourceUrl,
+    title: snapshot.title,
+    channel: snapshot.channel,
+    durationSeconds: snapshot.durationSeconds,
+    sourceLanguage: track.languageCode,
+    segments,
+  };
+}
+
+async function readBilibiliPlayerSnapshot(
+  tabId: number,
+  page: VideoPage,
+): Promise<BilibiliPlayerSnapshot> {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: "MAIN",
+    args: [page.videoId, page.pageNumber],
+    func: async (currentBvid: string, currentPageNumber: number) => {
+      const failure = (error: string) => ({ ok: false, error, snapshot: null });
+      const readJson = (text: string): Record<string, unknown> | null => {
+        try {
+          const value = JSON.parse(text);
+          return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+        } catch {
+          return null;
+        }
+      };
+
+      try {
+        const pageWindow = window as typeof window & {
+          player?: { getManifest?: () => Record<string, unknown> };
+        };
+        let playerManifest: Record<string, unknown> | null = null;
+        try {
+          playerManifest = pageWindow.player?.getManifest?.() ?? null;
+        } catch {
+          // The public player facade can be unavailable while the page boots.
+        }
+        if (playerManifest) {
+          const manifestBvid = String(playerManifest.bvid ?? "");
+          const manifestPage = Number(playerManifest.p ?? 0);
+          if (
+            (manifestBvid && manifestBvid !== currentBvid) ||
+            (Number.isSafeInteger(manifestPage) &&
+              manifestPage > 0 &&
+              manifestPage !== currentPageNumber)
+          ) {
+            return failure("Bilibili 播放器仍在切换视频，请稍后重试");
+          }
+        }
+
+        const viewUrl = new URL("https://api.bilibili.com/x/web-interface/view");
+        viewUrl.searchParams.set("bvid", currentBvid);
+        const viewResponse = await fetch(viewUrl, {
+          cache: "no-store",
+          credentials: "include",
+        });
+        const viewText = await viewResponse.text();
+        if (!viewResponse.ok) return failure(`Bilibili 视频接口返回 HTTP ${viewResponse.status}`);
+        const viewPayload = readJson(viewText);
+        const viewData = (viewPayload?.data ?? {}) as Record<string, unknown>;
+        if (!viewPayload || Number(viewPayload.code) !== 0) {
+          return failure(String(viewPayload?.message ?? "Bilibili 视频信息无法解析"));
+        }
+        if (String(viewData.bvid ?? "") !== currentBvid) {
+          return failure("Bilibili 页面仍在切换视频，请稍后重试");
+        }
+
+        const pages = Array.isArray(viewData.pages)
+          ? (viewData.pages as Array<Record<string, unknown>>)
+          : [];
+        const selectedPage = pages.find((item) => Number(item.page) === currentPageNumber);
+        if (!selectedPage) return failure(`找不到 Bilibili 视频的第 ${currentPageNumber} 个分 P`);
+        const cid = String(selectedPage.cid ?? "");
+        if (!/^\d+$/.test(cid)) return failure("Bilibili 分 P 信息缺少有效 CID");
+        const manifestCid = String(playerManifest?.cid ?? "");
+        if (manifestCid && manifestCid !== cid) {
+          return failure("Bilibili 播放器仍在切换分 P，请稍后重试");
+        }
+
+        const playerUrl = new URL("https://api.bilibili.com/x/player/v2");
+        playerUrl.searchParams.set("bvid", currentBvid);
+        playerUrl.searchParams.set("cid", cid);
+        const playerResponse = await fetch(playerUrl, {
+          cache: "no-store",
+          credentials: "include",
+        });
+        const playerText = await playerResponse.text();
+        if (!playerResponse.ok) {
+          return failure(`Bilibili 播放器接口返回 HTTP ${playerResponse.status}`);
+        }
+        const playerPayload = readJson(playerText);
+        const playerData = (playerPayload?.data ?? {}) as Record<string, unknown>;
+        if (!playerPayload || Number(playerPayload.code) !== 0) {
+          return failure(String(playerPayload?.message ?? "Bilibili 播放器信息无法解析"));
+        }
+
+        const subtitle = (playerData.subtitle ?? {}) as Record<string, unknown>;
+        const rawTracks = Array.isArray(subtitle.subtitles)
+          ? (subtitle.subtitles as Array<Record<string, unknown>>)
+          : [];
+        const tracks = rawTracks
+          .map((track) => ({
+            baseUrl: String(track.subtitle_url ?? ""),
+            languageCode: String(track.lan ?? ""),
+            name: String(track.lan_doc ?? track.lan ?? ""),
+            kind: Number(track.type) === 0 ? undefined : "asr",
+            isTranslatable: false,
+          }))
+          .filter((track) => track.baseUrl && track.languageCode);
+
+        const owner = (viewData.owner ?? {}) as Record<string, unknown>;
+        const baseTitle = String(viewData.title ?? document.title.replace(/_哔哩哔哩.*$/, ""));
+        const partTitle = String(selectedPage.part ?? "").trim();
+        const title =
+          pages.length > 1 && partTitle
+            ? `${baseTitle} · P${currentPageNumber} ${partTitle}`
+            : baseTitle;
+        const duration = Number(selectedPage.duration ?? viewData.duration ?? 0);
+        return {
+          ok: true,
+          error: "",
+          snapshot: {
+            videoId: currentBvid,
+            contentId: cid,
+            title,
+            channel: String(owner.name ?? "Bilibili"),
+            durationSeconds: Number.isFinite(duration) ? duration : 0,
+            tracks,
+            loggedIn: Number(playerData.login_mid ?? 0) > 0,
+          },
+        };
+      } catch (error) {
+        return failure(error instanceof Error ? error.message : String(error));
+      }
+    },
+  });
+  const result = results[0]?.result as BilibiliSnapshotResult | null | undefined;
+  if (!result?.ok || !result.snapshot) {
+    throw new Error(result?.error || "无法读取 Bilibili 播放器信息，请刷新页面后重试。");
+  }
+  return result.snapshot;
+}
+
+async function fetchBilibiliCaptionPayload(tabId: number, baseUrl: string): Promise<unknown> {
+  const captionUrl = bilibiliSubtitleUrl(baseUrl);
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: "MAIN",
+    args: [captionUrl],
+    func: async (url: string) => {
+      try {
+        const response = await fetch(url, {
+          cache: "no-store",
+          credentials: "omit",
+        });
+        return {
+          ok: response.ok,
+          status: response.status,
+          text: await response.text(),
+          error: response.ok ? "" : `HTTP ${response.status}`,
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          status: 0,
+          text: "",
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+  });
+  const result = results[0]?.result as CaptionFetchResult | null | undefined;
+  if (result?.ok && result.text.trim()) return parseBilibiliText(result.text);
+  throw new Error(
+    result?.error
+      ? `Bilibili 字幕请求失败：${result.error}`
+      : "Bilibili 字幕接口返回空响应，请刷新视频页面后重试。",
+  );
 }
 
 async function fetchCaptionPayload(
@@ -487,7 +714,7 @@ async function fetchCaptionFromInnertube(
   return (results[0]?.result as CaptionFetchResult | null | undefined) ?? null;
 }
 
-async function readPlayerSnapshot(tabId: number): Promise<PlayerSnapshot | null> {
+async function readYouTubePlayerSnapshot(tabId: number): Promise<PlayerSnapshot | null> {
   const results = await chrome.scripting.executeScript({
     target: { tabId },
     world: "MAIN",
@@ -548,7 +775,8 @@ async function readPlayerSnapshot(tabId: number): Promise<PlayerSnapshot | null>
 }
 
 async function playbackTime(tabId: number): Promise<number> {
-  await assertYouTubeTab(tabId);
+  const page = await assertVideoTab(tabId);
+  if (page.platform === "bilibili") return bilibiliPlaybackTime(tabId);
   const results = await chrome.scripting.executeScript({
     target: { tabId },
     world: "MAIN",
@@ -563,8 +791,12 @@ async function playbackTime(tabId: number): Promise<number> {
 }
 
 async function seekVideo(tabId: number, seconds: number): Promise<void> {
-  await assertYouTubeTab(tabId);
+  const page = await assertVideoTab(tabId);
   const safeSeconds = Math.max(0, Number.isFinite(seconds) ? seconds : 0);
+  if (page.platform === "bilibili") {
+    await seekBilibiliVideo(tabId, safeSeconds);
+    return;
+  }
   await chrome.scripting.executeScript({
     target: { tabId },
     world: "MAIN",
@@ -578,12 +810,64 @@ async function seekVideo(tabId: number, seconds: number): Promise<void> {
   });
 }
 
-async function assertYouTubeTab(tabId: number): Promise<void> {
+async function bilibiliPlaybackTime(tabId: number): Promise<number> {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: "MAIN",
+    func: () => {
+      const pageWindow = window as typeof window & {
+        player?: { getCurrentTime?: () => number };
+      };
+      try {
+        const playerTime = Number(pageWindow.player?.getCurrentTime?.());
+        if (Number.isFinite(playerTime)) return playerTime;
+      } catch {
+        // Fall through to the native media element.
+      }
+      const videos = Array.from(document.querySelectorAll("video"));
+      const video =
+        document.querySelector<HTMLVideoElement>("#bilibili-player video") ??
+        videos.find((item) => item.readyState > 0) ??
+        videos[0];
+      return Number(video?.currentTime ?? 0);
+    },
+  });
+  return Number(results[0]?.result ?? 0);
+}
+
+async function seekBilibiliVideo(tabId: number, seconds: number): Promise<void> {
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    world: "MAIN",
+    args: [seconds],
+    func: (time: number) => {
+      const pageWindow = window as typeof window & {
+        player?: { seek?: (value: number) => void };
+      };
+      try {
+        if (pageWindow.player?.seek) {
+          pageWindow.player.seek(time);
+          return;
+        }
+      } catch {
+        // Fall through to the native media element.
+      }
+      const videos = Array.from(document.querySelectorAll("video"));
+      const video =
+        document.querySelector<HTMLVideoElement>("#bilibili-player video") ??
+        videos.find((item) => item.readyState > 0) ??
+        videos[0];
+      if (video) video.currentTime = time;
+    },
+  });
+}
+
+async function assertVideoTab(tabId: number): Promise<VideoPage> {
   if (!Number.isInteger(tabId) || tabId <= 0) throw new Error("无效的标签页。");
   const tab = await chrome.tabs.get(tabId);
-  if (!tab.url?.startsWith("https://www.youtube.com/watch")) {
-    throw new Error("目标标签页不是 YouTube 视频。");
-  }
+  const page = detectVideoPage(tab.url ?? "");
+  if (!page) throw new Error("目标标签页不是受支持的 YouTube 或 Bilibili 视频。");
+  return page;
 }
 
 async function generateSummary(

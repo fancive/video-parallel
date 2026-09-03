@@ -16,6 +16,16 @@ export type ProviderProtocol = "openai-compatible" | "anthropic" | "google";
 
 export type ProviderCategory = "direct" | "gateway" | "local";
 
+export type VideoPlatform = "youtube" | "bilibili";
+
+export interface VideoPage {
+  platform: VideoPlatform;
+  videoId: string;
+  pageNumber: number;
+  sourceKey: string;
+  sourceUrl: string;
+}
+
 export interface AppSettings {
   provider: ProviderId;
   protocol: ProviderProtocol;
@@ -43,7 +53,10 @@ export interface TranscriptSegment {
 
 export interface VideoContext {
   tabId: number;
+  platform: VideoPlatform;
   videoId: string;
+  sourceKey: string;
+  sourceUrl: string;
   title: string;
   channel: string;
   durationSeconds: number;
@@ -91,9 +104,9 @@ export interface TokenUsage {
 }
 
 export interface SummaryCache {
-  version: 3;
+  version: 4;
   promptVersion: number;
-  videoId: string;
+  sourceKey: string;
   targetLanguage: string;
   providerFingerprint: string;
   sourceFingerprint: string;
