@@ -3,6 +3,11 @@ import type { VideoPage } from "./types";
 const YOUTUBE_VIDEO_ID = /^[A-Za-z0-9_-]{6,20}$/;
 const BILIBILI_VIDEO_PATH = /^\/video\/(BV[A-Za-z0-9]{10})\/?$/;
 
+export const BILIBILI_PLAYER_API_URL = "https://api.bilibili.com/x/player/wbi/v2";
+// Bump when Bilibili caption discovery or provenance changes so only its
+// affected summary caches become unreachable.
+export const BILIBILI_CAPTION_SOURCE_VERSION = 2;
+
 export function detectVideoPage(urlValue: string): VideoPage | null {
   try {
     const url = new URL(urlValue);
@@ -51,6 +56,18 @@ export function summaryCacheStorageKey(
 ): string {
   const fingerprint = `${video.sourceKey}|${targetLanguage}|${providerFingerprint}|${promptVersion}`;
   return `video_parallel_summary_${video.videoId}_${hashString(fingerprint)}`;
+}
+
+export function bilibiliCaptionSourceKey(
+  videoId: string,
+  contentId: string,
+  trackId: string,
+): string {
+  if (!/^BV[A-Za-z0-9]{10}$/.test(videoId) || !/^\d+$/.test(contentId)) {
+    throw new Error("Bilibili 视频身份无效。");
+  }
+  const stableTrackId = /^\d+$/.test(trackId) ? trackId : "unknown";
+  return `bilibili:v${BILIBILI_CAPTION_SOURCE_VERSION}:${videoId}:cid${contentId}:track${stableTrackId}`;
 }
 
 function hashString(input: string): string {

@@ -36,7 +36,11 @@ import type {
   VideoContext,
   VideoPage,
 } from "./lib/types";
-import { detectVideoPage } from "./lib/video-source";
+import {
+  BILIBILI_PLAYER_API_URL,
+  bilibiliCaptionSourceKey,
+  detectVideoPage,
+} from "./lib/video-source";
 
 const AI_TIMEOUT_MS = 120_000;
 const MODEL_LIST_TIMEOUT_MS = 30_000;
@@ -253,7 +257,11 @@ async function loadBilibiliVideo(tabId: number, page: VideoPage): Promise<VideoC
     );
   }
 
-  const payload = await fetchBilibiliCaptionPayload(tabId, track.baseUrl);
+  const payload = await fetchBilibiliCaptionPayload(tabId, track.baseUrl, page, snapshot.contentId);
+  const currentPage = await assertVideoTab(tabId);
+  if (currentPage.sourceKey !== page.sourceKey) {
+    throw new Error("Bilibili 页面已切换视频或分 P，请重新读取字幕。");
+  }
   const segments = parseBilibiliTranscript(payload);
   if (segments.length === 0) throw new Error("Bilibili 字幕轨道存在，但没有返回可显示的内容。");
 
@@ -261,7 +269,7 @@ async function loadBilibiliVideo(tabId: number, page: VideoPage): Promise<VideoC
     tabId,
     platform: page.platform,
     videoId: snapshot.videoId,
-    sourceKey: `bilibili:${snapshot.videoId}:cid${snapshot.contentId}`,
+    sourceKey: bilibiliCaptionSourceKey(snapshot.videoId, snapshot.contentId, track.id ?? ""),
     sourceUrl: page.sourceUrl,
     title: snapshot.title,
     channel: snapshot.channel,
@@ -278,8 +286,8 @@ async function readBilibiliPlayerSnapshot(
   const results = await chrome.scripting.executeScript({
     target: { tabId },
     world: "MAIN",
-    args: [page.videoId, page.pageNumber],
-    func: async (currentBvid: string, currentPageNumber: number) => {
+    args: [page.videoId, page.pageNumber, BILIBILI_PLAYER_API_URL],
+    func: async (currentBvid: string, currentPageNumber: number, playerApiUrl: string) => {
       const failure = (error: string) => ({ ok: false, error, snapshot: null });
       const readJson = (text: string): Record<string, unknown> | null => {
         try {
@@ -294,23 +302,43 @@ async function readBilibiliPlayerSnapshot(
         const pageWindow = window as typeof window & {
           player?: { getManifest?: () => Record<string, unknown> };
         };
-        let playerManifest: Record<string, unknown> | null = null;
-        try {
-          playerManifest = pageWindow.player?.getManifest?.() ?? null;
-        } catch {
-          // The public player facade can be unavailable while the page boots.
-        }
-        if (playerManifest) {
-          const manifestBvid = String(playerManifest.bvid ?? "");
-          const manifestPage = Number(playerManifest.p ?? 0);
-          if (
+        const readPlayerManifest = (): Record<string, unknown> | null => {
+          try {
+            return pageWindow.player?.getManifest?.() ?? null;
+          } catch {
+            return null;
+          }
+        };
+        const locationMatches = (): boolean => {
+          const match = location.pathname.match(/^\/video\/(BV[A-Za-z0-9]{10})\/?$/);
+          const requestedPage = Number(new URL(location.href).searchParams.get("p") ?? "1");
+          const pageNumber =
+            Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+          return match?.[1] === currentBvid && pageNumber === currentPageNumber;
+        };
+        const manifestMatches = (
+          manifest: Record<string, unknown> | null,
+          expectedAid = "",
+          expectedCid = "",
+        ): boolean => {
+          if (!manifest) return true;
+          const manifestBvid = String(manifest.bvid ?? "");
+          const manifestPage = Number(manifest.p ?? 0);
+          const manifestAid = String(manifest.aid ?? "");
+          const manifestCid = String(manifest.cid ?? "");
+          return !(
             (manifestBvid && manifestBvid !== currentBvid) ||
             (Number.isSafeInteger(manifestPage) &&
               manifestPage > 0 &&
-              manifestPage !== currentPageNumber)
-          ) {
-            return failure("Bilibili 播放器仍在切换视频，请稍后重试");
-          }
+              manifestPage !== currentPageNumber) ||
+            (expectedAid && manifestAid && manifestAid !== expectedAid) ||
+            (expectedCid && manifestCid && manifestCid !== expectedCid)
+          );
+        };
+        if (!locationMatches()) return failure("Bilibili 页面仍在切换视频，请稍后重试");
+        const playerManifest = readPlayerManifest();
+        if (!manifestMatches(playerManifest)) {
+          return failure("Bilibili 播放器仍在切换视频，请稍后重试");
         }
 
         const viewUrl = new URL("https://api.bilibili.com/x/web-interface/view");
@@ -329,6 +357,8 @@ async function readBilibiliPlayerSnapshot(
         if (String(viewData.bvid ?? "") !== currentBvid) {
           return failure("Bilibili 页面仍在切换视频，请稍后重试");
         }
+        const aid = String(viewData.aid ?? "");
+        if (!/^\d+$/.test(aid)) return failure("Bilibili 视频信息缺少有效 AID");
 
         const pages = Array.isArray(viewData.pages)
           ? (viewData.pages as Array<Record<string, unknown>>)
@@ -337,14 +367,20 @@ async function readBilibiliPlayerSnapshot(
         if (!selectedPage) return failure(`找不到 Bilibili 视频的第 ${currentPageNumber} 个分 P`);
         const cid = String(selectedPage.cid ?? "");
         if (!/^\d+$/.test(cid)) return failure("Bilibili 分 P 信息缺少有效 CID");
-        const manifestCid = String(playerManifest?.cid ?? "");
-        if (manifestCid && manifestCid !== cid) {
+        if (
+          !locationMatches() ||
+          !manifestMatches(playerManifest, aid, cid) ||
+          !manifestMatches(readPlayerManifest(), aid, cid)
+        ) {
           return failure("Bilibili 播放器仍在切换分 P，请稍后重试");
         }
 
-        const playerUrl = new URL("https://api.bilibili.com/x/player/v2");
+        const playerUrl = new URL(playerApiUrl);
+        playerUrl.searchParams.set("aid", aid);
         playerUrl.searchParams.set("bvid", currentBvid);
         playerUrl.searchParams.set("cid", cid);
+        playerUrl.searchParams.set("isGaiaAvoided", "false");
+        playerUrl.searchParams.set("web_location", "1315873");
         const playerResponse = await fetch(playerUrl, {
           cache: "no-store",
           credentials: "include",
@@ -358,6 +394,21 @@ async function readBilibiliPlayerSnapshot(
         if (!playerPayload || Number(playerPayload.code) !== 0) {
           return failure(String(playerPayload?.message ?? "Bilibili 播放器信息无法解析"));
         }
+        const responseAid = String(playerData.aid ?? "");
+        const responseBvid = String(playerData.bvid ?? "");
+        const responseCid = String(playerData.cid ?? "");
+        const responsePageNumber = Number(playerData.page_no ?? 0);
+        if (
+          responseAid !== aid ||
+          responseBvid !== currentBvid ||
+          responseCid !== cid ||
+          responsePageNumber !== currentPageNumber
+        ) {
+          return failure("Bilibili 播放器接口返回了不匹配的视频数据，已拒绝读取字幕");
+        }
+        if (!locationMatches() || !manifestMatches(readPlayerManifest(), aid, cid)) {
+          return failure("Bilibili 页面在读取字幕时发生切换，请重新读取");
+        }
 
         const subtitle = (playerData.subtitle ?? {}) as Record<string, unknown>;
         const rawTracks = Array.isArray(subtitle.subtitles)
@@ -365,6 +416,7 @@ async function readBilibiliPlayerSnapshot(
           : [];
         const tracks = rawTracks
           .map((track) => ({
+            id: String(track.id_str ?? ""),
             baseUrl: String(track.subtitle_url ?? ""),
             languageCode: String(track.lan ?? ""),
             name: String(track.lan_doc ?? track.lan ?? ""),
@@ -406,22 +458,76 @@ async function readBilibiliPlayerSnapshot(
   return result.snapshot;
 }
 
-async function fetchBilibiliCaptionPayload(tabId: number, baseUrl: string): Promise<unknown> {
+async function fetchBilibiliCaptionPayload(
+  tabId: number,
+  baseUrl: string,
+  page: VideoPage,
+  contentId: string,
+): Promise<unknown> {
   const captionUrl = bilibiliSubtitleUrl(baseUrl);
   const results = await chrome.scripting.executeScript({
     target: { tabId },
     world: "MAIN",
-    args: [captionUrl],
-    func: async (url: string) => {
+    args: [captionUrl, page.videoId, page.pageNumber, contentId],
+    func: async (
+      url: string,
+      expectedBvid: string,
+      expectedPageNumber: number,
+      expectedCid: string,
+    ) => {
+      const identityMatches = (): boolean => {
+        const match = location.pathname.match(/^\/video\/(BV[A-Za-z0-9]{10})\/?$/);
+        const requestedPage = Number(new URL(location.href).searchParams.get("p") ?? "1");
+        const pageNumber =
+          Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+        if (match?.[1] !== expectedBvid || pageNumber !== expectedPageNumber) return false;
+
+        try {
+          const pageWindow = window as typeof window & {
+            player?: { getManifest?: () => Record<string, unknown> };
+          };
+          const manifest = pageWindow.player?.getManifest?.();
+          if (!manifest) return true;
+          const manifestBvid = String(manifest.bvid ?? "");
+          const manifestPage = Number(manifest.p ?? 0);
+          const manifestCid = String(manifest.cid ?? "");
+          return !(
+            (manifestBvid && manifestBvid !== expectedBvid) ||
+            (Number.isSafeInteger(manifestPage) &&
+              manifestPage > 0 &&
+              manifestPage !== expectedPageNumber) ||
+            (manifestCid && manifestCid !== expectedCid)
+          );
+        } catch {
+          return true;
+        }
+      };
       try {
+        if (!identityMatches()) {
+          return {
+            ok: false,
+            status: 0,
+            text: "",
+            error: "Bilibili 播放器仍在切换视频或分 P",
+          };
+        }
         const response = await fetch(url, {
           cache: "no-store",
           credentials: "omit",
         });
+        const text = await response.text();
+        if (!identityMatches()) {
+          return {
+            ok: false,
+            status: 0,
+            text: "",
+            error: "Bilibili 播放器在读取字幕时发生切换",
+          };
+        }
         return {
           ok: response.ok,
           status: response.status,
-          text: await response.text(),
+          text,
           error: response.ok ? "" : `HTTP ${response.status}`,
         };
       } catch (error) {

@@ -37,6 +37,7 @@ export interface AppSettings {
 }
 
 export interface CaptionTrack {
+  id?: string;
   baseUrl: string;
   languageCode: string;
   name: string;
