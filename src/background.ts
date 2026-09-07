@@ -1,3 +1,4 @@
+import { ProcessingError, processingFailure, providerErrorMessage } from "./lib/processing-error";
 import type { CompletionResult } from "./lib/provider-client";
 import {
   buildCompletionRequest,
@@ -13,12 +14,7 @@ import {
   SETTINGS_KEY,
 } from "./lib/settings";
 import { notifySidePanelIfReady, openTabSidePanel, sidePanelPath } from "./lib/side-panel";
-import {
-  buildSummaryMessages,
-  MAX_CHAPTER_TRANSCRIPT_CHARACTERS,
-  MAX_CHAPTER_TRANSCRIPT_SEGMENTS,
-  parseSummaryResponse,
-} from "./lib/summary";
+import { generateVideoSummary } from "./lib/summary-service";
 import {
   bilibiliSubtitleUrl,
   json3CaptionUrl,
@@ -31,7 +27,6 @@ import {
 import type {
   AppSettings,
   PlayerSnapshot,
-  TokenUsage,
   TranscriptSegment,
   VideoContext,
   VideoPage,
@@ -156,7 +151,10 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
       String(request.videoTitle ?? ""),
     )
       .then((result) => sendResponse({ ok: true, ...result }))
-      .catch((error: unknown) => sendResponse({ ok: false, error: errorMessage(error) }));
+      .catch((error: unknown) => {
+        const failure = processingFailure(error, "provider");
+        sendResponse({ ok: false, error: failure.message, failure });
+      });
     return true;
   }
 
@@ -980,32 +978,10 @@ async function generateSummary(
   segments: TranscriptSegment[],
   targetLanguage: string,
   videoTitle: string,
-): Promise<ReturnType<typeof parseSummaryResponse> & { usage?: TokenUsage }> {
-  validateChapterSegments(segments);
+) {
   const settings = await getSettings();
   await assertProviderReady(settings);
-
-  let parseError: unknown;
-  let usage: TokenUsage | undefined;
-  let hasCompleteUsage = true;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const completion = await requestAiCompletion(
-      settings,
-      buildSummaryMessages(segments, targetLanguage, videoTitle),
-    );
-    if (completion.usage) usage = mergeTokenUsage(usage, completion.usage);
-    else hasCompleteUsage = false;
-    try {
-      const summary = parseSummaryResponse(completion.content, segments);
-      return { ...summary, ...(hasCompleteUsage && usage ? { usage } : {}) };
-    } catch (error) {
-      parseError = error;
-      if (attempt === 0) {
-        console.warn("[video-parallel] Retrying invalid summary response:", errorMessage(error));
-      }
-    }
-  }
-  throw parseError instanceof Error ? parseError : new Error("AI 返回的概要无法解析。");
+  return generateVideoSummary({ ...settings, targetLanguage }, segments, videoTitle);
 }
 
 async function requestAiCompletion(
@@ -1025,16 +1001,25 @@ async function requestAiCompletion(
       const text = await readBoundedText(response);
       if (!response.ok) {
         if (attempt === 0 && shouldRetryWithoutJsonMode(response.status, text)) continue;
-        throw new Error(providerError(text, response.status));
+        throw new ProcessingError(
+          providerErrorMessage(text, response.status),
+          "provider",
+          response.status,
+        );
       }
-      return parseCompletionResult(settings.protocol, text);
+      try {
+        return parseCompletionResult(settings.protocol, text);
+      } catch (error) {
+        throw new ProcessingError(errorMessage(error), "response");
+      }
     }
     throw new Error("AI 服务不支持当前 JSON 输出模式。");
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
       throw new Error("AI 请求超过 120 秒，请重试。");
     }
-    throw error;
+    const failure = processingFailure(error, "provider", settings.apiKey);
+    throw new ProcessingError(failure.message, failure.stage, failure.status);
   } finally {
     clearTimeout(timeout);
   }
@@ -1065,13 +1050,6 @@ async function testProvider(settings: AppSettings): Promise<{ message: string }>
     throw new Error("模型已响应，但没有遵循 JSON 输出要求。");
   }
   return { message: `${settings.model} 连接正常` };
-}
-
-function mergeTokenUsage(current: TokenUsage | undefined, next: TokenUsage): TokenUsage {
-  return {
-    inputTokens: (current?.inputTokens ?? 0) + next.inputTokens,
-    outputTokens: (current?.outputTokens ?? 0) + next.outputTokens,
-  };
 }
 
 async function fetchWithTimeout(
@@ -1114,33 +1092,6 @@ function isOptionsPageSender(sender: chrome.runtime.MessageSender): boolean {
   );
 }
 
-function validateChapterSegments(segments: TranscriptSegment[]): void {
-  if (segments.length === 0) throw new Error("没有可用于生成概要的字幕。");
-  if (segments.length > MAX_CHAPTER_TRANSCRIPT_SEGMENTS) {
-    throw new Error(`字幕超过单次智能切章上限（${MAX_CHAPTER_TRANSCRIPT_SEGMENTS} 段）。`);
-  }
-  let characters = 0;
-  const ids = new Set<string>();
-  for (const segment of segments) {
-    if (!/^[A-Za-z0-9_-]{1,80}$/.test(segment.id) || ids.has(segment.id)) {
-      throw new Error("字幕段 ID 无效。");
-    }
-    if (
-      !segment.text ||
-      segment.text.length > 3000 ||
-      !Number.isFinite(segment.startMs) ||
-      segment.startMs < 0
-    ) {
-      throw new Error("字幕文本或时间戳无效。");
-    }
-    ids.add(segment.id);
-    characters += segment.text.length;
-  }
-  if (characters > MAX_CHAPTER_TRANSCRIPT_CHARACTERS) {
-    throw new Error(`字幕超过单次智能切章上限（${MAX_CHAPTER_TRANSCRIPT_CHARACTERS} 字符）。`);
-  }
-}
-
 async function readBoundedText(response: Response): Promise<string> {
   const text = await response.text();
   if (new TextEncoder().encode(text).byteLength > MAX_AI_RESPONSE_BYTES) {
@@ -1150,14 +1101,7 @@ async function readBoundedText(response: Response): Promise<string> {
 }
 
 function providerError(text: string, status: number): string {
-  try {
-    const parsed = JSON.parse(text) as { error?: { message?: unknown }; message?: unknown };
-    const message = parsed.error?.message ?? parsed.message;
-    if (typeof message === "string" && message.trim()) return message;
-  } catch {
-    // Fall back to a bounded generic message below.
-  }
-  return `AI 请求失败：HTTP ${status}`;
+  return providerErrorMessage(text, status);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

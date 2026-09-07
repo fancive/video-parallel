@@ -28,6 +28,7 @@
           </svg>
           <span id="processButtonLabel">开始处理</span>
         </button>
+        <button class="toolbar-toggle" id="cancelButton" type="button" hidden>取消</button>
         <div class="font-size-control">
           <button
             class="icon-button font-size-button"
@@ -70,7 +71,7 @@
 
       <section class="state" id="emptyState" hidden>
         <div class="empty-glyph" aria-hidden="true"><span>00:00</span></div>
-        <p class="eyebrow">No caption track</p>
+        <p class="eyebrow">Caption loading failed</p>
         <h1 id="emptyTitle">打开一个有字幕的视频</h1>
         <p id="emptyMessage">
           支持 YouTube 标准 watch 页面和哔哩哔哩 /video/BV 视频页。Shorts、直播、番剧和无字幕视频暂不支持。
@@ -89,6 +90,16 @@
               <span class="token-usage" id="tokenUsage" hidden></span>
               <span class="chapter-count" id="chapterCount">等待处理</span>
             </div>
+          </div>
+          <div class="processing-error" id="processingError" role="alert" hidden>
+            <strong id="processingErrorTitle"></strong>
+            <p id="processingErrorMessage"></p>
+            <p class="error-hint" id="processingErrorHint"></p>
+            <details id="processingErrorDetails">
+              <summary>错误详情</summary>
+              <pre id="processingErrorDiagnostic"></pre>
+            </details>
+            <button id="copyErrorButton" type="button">复制错误详情</button>
           </div>
           <div class="summary-list" id="summaryList" aria-live="polite"></div>
         </section>

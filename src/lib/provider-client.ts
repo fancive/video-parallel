@@ -19,6 +19,7 @@ export interface CompletionResult {
 interface CompletionOptions {
   jsonMode?: boolean;
   maxOutputTokens?: number;
+  stream?: boolean;
 }
 
 export function buildCompletionRequest(
@@ -33,7 +34,13 @@ export function buildCompletionRequest(
   if (settings.protocol === "google") {
     return buildGoogleCompletionRequest(settings, messages, jsonMode, options.maxOutputTokens);
   }
-  return buildOpenAiCompletionRequest(settings, messages, jsonMode, options.maxOutputTokens);
+  return buildOpenAiCompletionRequest(
+    settings,
+    messages,
+    jsonMode,
+    options.maxOutputTokens,
+    options.stream,
+  );
 }
 
 export function parseCompletionResponse(protocol: ProviderProtocol, responseText: string): string {
@@ -100,8 +107,13 @@ function buildOpenAiCompletionRequest(
   messages: AiMessage[],
   jsonMode: boolean,
   maxOutputTokens?: number,
+  stream = false,
 ): ProviderRequest {
   const body: Record<string, unknown> = { model: settings.model, messages };
+  if (stream) {
+    body.stream = true;
+    body.stream_options = { include_usage: true };
+  }
   if (jsonMode && providerSupportsJsonMode(settings)) {
     body.response_format = { type: "json_object" };
   }

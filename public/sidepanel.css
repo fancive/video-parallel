@@ -123,6 +123,7 @@ a:focus-visible,
 }
 
 .toolbar-toggle:hover { border-color: var(--line); background: var(--screen); }
+.toolbar-toggle[hidden] { display: none; }
 
 .toolbar-toggle[aria-pressed="true"] {
   border-color: rgb(47 89 255 / 24%);
@@ -320,6 +321,41 @@ main { min-height: calc(100vh - 48px); }
   animation: blink 1s ease-in-out infinite alternate;
 }
 
+.status-dot.is-error {
+  background: #b83b27;
+  box-shadow: 0 0 0 3px rgb(184 59 39 / 14%);
+  animation: none;
+}
+
+.processing-error {
+  margin: 14px 0;
+  padding: 16px;
+  border: 1px solid rgb(184 59 39 / 25%);
+  border-left: 3px solid #b83b27;
+  border-radius: 4px;
+  background: #fff7f4;
+  font-size: var(--summary-copy-size);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.processing-error[hidden] { display: none; }
+.processing-error strong { color: #942f20; }
+.processing-error p { margin: 8px 0; white-space: pre-wrap; }
+.processing-error .error-hint { color: var(--muted); }
+.processing-error summary { cursor: pointer; font-size: 12px; }
+.processing-error pre { white-space: pre-wrap; font-size: 11px; font-family: var(--mono); }
+.processing-error button {
+  min-height: 34px;
+  margin-top: 12px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--paper);
+  font-size: 12px;
+  cursor: pointer;
+}
+
 @keyframes blink { to { opacity: 0.35; } }
 
 .summary-section {
@@ -356,9 +392,8 @@ main { min-height: calc(100vh - 48px); }
 }
 
 .runtime-status span:last-child {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .runtime-meta {

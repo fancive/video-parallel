@@ -139,6 +139,34 @@ Permissions are deliberately scoped:
 Read the complete [Privacy Policy](PRIVACY.md) and [Security Policy](SECURITY.md) before processing
 private, confidential, or regulated material.
 
+## Troubleshooting processing failures
+
+Processing errors stay visible in the Side Panel until the next attempt or video load. The panel
+shows the failed stage, the original error and a suggested next step. **Copy error details** includes
+the video URL, model, subtitle size, elapsed time, extension version and HTTP status when available;
+it excludes the API Key and transcript text.
+
+Starting in **0.1.17**, DeepSeek summaries use streaming responses. The panel shows whether the
+connection is waiting, the model is thinking, or the summary is being generated. Received character
+counts indicate progress; token usage still comes exclusively from the Provider's usage response.
+Thinking content is neither displayed nor cached, and incomplete streams are rejected.
+
+Starting in **0.1.18**, the 2 MiB response limit applies separately to each pending streaming event
+and the retained summary text, measured in UTF-8 bytes. Repeated event metadata and discarded
+thinking content no longer accumulate toward a whole-stream limit. Non-streaming response bodies
+remain capped at 2 MiB. Size-limit errors identify the receiving stage and the specific limit.
+
+Requests now run in the Side Panel, so long summaries do not depend on Chrome's background-worker
+lifetime. Keep the panel open while processing. **Cancel**, closing the panel, switching videos, or
+changing the model connection cancels the active request. Previously generated summaries remain
+available when a new attempt fails or is cancelled.
+
+The old fixed 120-second deadline is replaced by a **120-second timeout without received data** and
+a **10-minute total deadline**, including retries. Provider keep-alives and output reset the idle
+timer; they do not extend the total deadline. Other Providers retain their existing JSON protocol.
+HTTP 401/403, 429 and 5xx errors have separate guidance for permissions, rate limits and service
+failures. These errors do not by themselves mean that a video's captions are missing.
+
 ## Keyboard shortcuts
 
 | Shortcut | Action |

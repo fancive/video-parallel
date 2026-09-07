@@ -1,3 +1,4 @@
+import { type CompletionProgress, formatCompletionProgress } from "./lib/completion-stream";
 import { buildSummaryMarkdown, sanitizeFilename } from "./lib/markdown";
 import {
   DEFAULT_PANEL_PREFERENCES,
@@ -7,15 +8,25 @@ import {
   type PanelPreferences,
 } from "./lib/panel-preferences";
 import {
+  formatProcessingDiagnostics,
+  PROCESSING_STAGE_LABELS,
+  type ProcessingFailure,
+  type ProcessingStage,
+  processingFailure,
+  redactError,
+} from "./lib/processing-error";
+import {
   DEFAULT_SETTINGS,
   normalizeSettings,
   providerFingerprint,
+  providerOriginPattern,
   providerRequiresApiKey,
   SETTINGS_KEY,
   TARGET_LANGUAGE_LABELS,
 } from "./lib/settings";
 import { tabIdFromSidePanelSearch } from "./lib/side-panel";
 import { makeChapterBlocks, SUMMARY_PROMPT_VERSION } from "./lib/summary";
+import { generateVideoSummary } from "./lib/summary-service";
 import { formatTimecode } from "./lib/transcript";
 import type {
   AppSettings,
@@ -32,6 +43,7 @@ import { summaryCacheStorageKey } from "./lib/video-source";
 interface RuntimeResponse {
   ok: boolean;
   error?: string;
+  failure?: ProcessingFailure;
   video?: VideoContext;
   seconds?: number;
   overview?: VideoOverview;
@@ -53,6 +65,7 @@ const statusText = element<HTMLElement>("statusText");
 const tokenUsage = element<HTMLElement>("tokenUsage");
 const processButton = element<HTMLButtonElement>("processButton");
 const processButtonLabel = element<HTMLElement>("processButtonLabel");
+const cancelButton = element<HTMLButtonElement>("cancelButton");
 const followButton = element<HTMLButtonElement>("followButton");
 const followButtonLabel = element<HTMLElement>("followButtonLabel");
 const fontSizeButton = element<HTMLButtonElement>("fontSizeButton");
@@ -61,8 +74,11 @@ const fontSizeOptions = Array.from(
   fontSizeMenu.querySelectorAll<HTMLButtonElement>("[data-font-size]"),
 );
 const toast = element<HTMLElement>("toast");
+const processingError = element<HTMLElement>("processingError");
+const processingErrorDiagnostic = element<HTMLElement>("processingErrorDiagnostic");
 
 let currentVideo: VideoContext | null = null;
+let boundTabId: number | undefined;
 let currentOverview: VideoOverview | null = null;
 let currentChapters: SummaryBlock[] = [];
 let currentTokenUsage: TokenUsage | null = null;
@@ -73,6 +89,7 @@ let playbackTimer: number | undefined;
 let toastTimer: number | undefined;
 let loadingGeneration = 0;
 let processing = false;
+let activeSummaryController: AbortController | undefined;
 const hasExtensionRuntime = typeof chrome !== "undefined" && Boolean(chrome.runtime?.id);
 
 element<HTMLButtonElement>("settingsButton").addEventListener("click", openSettings);
@@ -93,15 +110,33 @@ document.addEventListener("keydown", (event) => {
 });
 element<HTMLButtonElement>("retryButton").addEventListener("click", () => void loadVideo());
 processButton.addEventListener("click", () => void processVideo());
+cancelButton.addEventListener("click", () => activeSummaryController?.abort());
 followButton.addEventListener("click", toggleFollow);
 element<HTMLButtonElement>("copyButton").addEventListener("click", () => void copyMarkdown());
 element<HTMLButtonElement>("exportButton").addEventListener("click", exportMarkdown);
+element<HTMLButtonElement>("copyErrorButton").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(processingErrorDiagnostic.textContent ?? "");
+    showToast("错误详情已复制");
+  } catch {
+    showToast("复制失败，请展开错误详情后手动复制");
+  }
+});
 
 if (hasExtensionRuntime) {
+  window.addEventListener("pagehide", () => activeSummaryController?.abort());
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName !== "local") return;
     if (changes[SETTINGS_KEY]) {
-      settings = normalizeSettings(changes[SETTINGS_KEY].newValue);
+      const nextSettings = normalizeSettings(changes[SETTINGS_KEY].newValue);
+      if (
+        settings.targetLanguage !== nextSettings.targetLanguage ||
+        settings.apiKey !== nextSettings.apiKey ||
+        providerFingerprint(settings) !== providerFingerprint(nextSettings)
+      ) {
+        activeSummaryController?.abort();
+      }
+      settings = nextSettings;
       updateToolbarState();
       if (currentVideo && !processing) void reloadSummaryCache();
     }
@@ -112,7 +147,7 @@ if (hasExtensionRuntime) {
   });
 
   chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-    if (tabId !== currentVideo?.tabId || !changeInfo.url) return;
+    if (tabId !== boundTabId || !changeInfo.url) return;
     void loadVideo();
   });
 
@@ -151,13 +186,17 @@ async function consumeProcessRequestAndStart(tabId: number): Promise<void> {
 
 async function loadVideo(): Promise<void> {
   const generation = ++loadingGeneration;
+  activeSummaryController?.abort();
+  clearProcessingError();
+  currentVideo = null;
   stopPlaybackTracking();
   processButton.disabled = true;
   showState("loading");
   try {
+    boundTabId = tabIdFromSidePanelSearch(window.location.search);
     const response = await sendMessage({
       type: "LOAD_VIDEO",
-      tabId: tabIdFromSidePanelSearch(window.location.search),
+      tabId: boundTabId,
     });
     if (generation !== loadingGeneration) return;
     if (!response.ok || !response.video) throw new Error(response.error || "无法读取视频。");
@@ -167,6 +206,7 @@ async function loadVideo(): Promise<void> {
     currentChapters = [];
     currentTokenUsage = null;
     await restoreSummaryCache();
+    if (generation !== loadingGeneration) return;
     renderVideo();
     showState("workspace");
     startPlaybackTracking();
@@ -201,44 +241,125 @@ async function processVideo(): Promise<void> {
   if (!ensureProviderConfigured()) return;
 
   const video = currentVideo;
+  const runSettings = { ...settings };
+  const generation = loadingGeneration;
+  const startedAt = Date.now();
+  const controller = new AbortController();
+  activeSummaryController = controller;
+  let progress: CompletionProgress = {
+    phase: "connecting",
+    contentCharacters: 0,
+    reasoningCharacters: 0,
+  };
+  const isCurrentRun = () =>
+    generation === loadingGeneration &&
+    currentVideo?.sourceKey === video.sourceKey &&
+    settings.targetLanguage === runSettings.targetLanguage &&
+    providerFingerprint(settings) === providerFingerprint(runSettings);
+  let stage: ProcessingStage = "provider";
   processing = true;
+  clearProcessingError();
+  cancelButton.hidden = false;
   processButton.disabled = true;
   statusDot.classList.add("is-working");
-  setStatus("模型正在生成全文要点并识别章节", true);
+  const showProgress = () => {
+    if (isCurrentRun())
+      setStatus(
+        `${formatCompletionProgress(progress)} · ${Math.floor((Date.now() - startedAt) / 1000)} 秒`,
+        true,
+      );
+  };
+  showProgress();
+  const progressTimer = window.setInterval(() => {
+    if (isCurrentRun()) {
+      showProgress();
+    }
+  }, 1000);
 
   try {
-    const response = await sendMessage({
-      type: "GENERATE_SUMMARY",
-      segments: video.segments,
-      targetLanguage: settings.targetLanguage,
-      videoTitle: video.title,
+    const allowed = await chrome.permissions.contains({
+      origins: [providerOriginPattern(runSettings.baseUrl)],
     });
-    if (!response.ok || !response.overview || !response.chapters) {
-      throw new Error(response.error || "章节概要生成失败。");
-    }
-    if (currentVideo?.sourceKey !== video.sourceKey) return;
+    if (!allowed) throw new Error("当前接口还没有网络权限，请重新保存设置。");
+    const response = await generateVideoSummary(runSettings, video.segments, video.title, {
+      signal: controller.signal,
+      onProgress: (value) => {
+        progress = value;
+      },
+    });
+    if (!isCurrentRun()) return;
 
+    stage = "response";
     const chapters = makeChapterBlocks(video.segments, response.chapters);
     if (chapters.length === 0) throw new Error("模型没有返回可显示的章节。");
     currentOverview = response.overview;
     currentChapters = chapters;
     currentTokenUsage = isTokenUsage(response.usage) ? response.usage : null;
-    await saveSummaryCache();
     renderSummary();
+    stage = "cache";
+    await saveSummaryCache();
+    if (!isCurrentRun()) return;
     setStatus(`已生成全文要点和 ${chapters.length} 个章节`, false);
     showToast("全文及章节概要已生成并保存在本地");
   } catch (error) {
+    if (!isCurrentRun()) return;
+    if (controller.signal.aborted) {
+      setStatus(currentChapters.length ? "已取消处理，上次概要仍保留" : "已取消处理", false);
+      return;
+    }
+    const failure = processingFailure(error, stage, runSettings.apiKey);
     setStatus(
-      currentChapters.length ? "处理已暂停，上次概要仍保留" : "处理未完成，请检查模型设置",
+      stage === "cache"
+        ? "概要已生成，本地保存失败"
+        : currentChapters.length
+          ? "处理未完成，上次概要仍保留"
+          : "处理未完成，请查看下方原因",
       false,
     );
-    showToast(error instanceof Error ? error.message : String(error));
+    element<HTMLElement>("processingErrorTitle").textContent =
+      `${PROCESSING_STAGE_LABELS[failure.stage]}失败`;
+    element<HTMLElement>("processingErrorMessage").textContent = failure.message;
+    element<HTMLElement>("processingErrorHint").textContent = failure.hint;
+    processingErrorDiagnostic.textContent = redactError(
+      formatProcessingDiagnostics(failure, {
+        version: hasExtensionRuntime ? chrome.runtime.getManifest().version : "preview",
+        videoUrl: video.sourceUrl,
+        model: runSettings.model,
+        protocol: runSettings.protocol,
+        segmentCount: video.segments.length,
+        characterCount: video.segments.reduce((sum, segment) => sum + segment.text.length, 0),
+        elapsedSeconds: Math.round((Date.now() - startedAt) / 1000),
+        occurredAt: new Date().toISOString(),
+        activity: formatCompletionProgress(progress),
+      }),
+      runSettings.apiKey,
+    );
+    processingError.hidden = false;
+    statusDot.classList.add("is-error");
+    updateProcessButton();
+    processingError.scrollIntoView({ block: "nearest" });
   } finally {
+    window.clearInterval(progressTimer);
+    if (activeSummaryController === controller) activeSummaryController = undefined;
+    cancelButton.hidden = true;
     processing = false;
-    statusDot.classList.remove("is-working");
-    processButton.disabled = false;
+    if (generation === loadingGeneration && currentVideo?.sourceKey === video.sourceKey) {
+      statusDot.classList.remove("is-working");
+      if (!isCurrentRun()) {
+        clearProcessingError();
+        await reloadSummaryCache();
+      }
+    }
+    processButton.disabled = currentVideo === null;
     updateProcessButton();
   }
+}
+
+function clearProcessingError(): void {
+  processingError.hidden = true;
+  processingErrorDiagnostic.textContent = "";
+  element<HTMLDetailsElement>("processingErrorDetails").open = false;
+  statusDot.classList.remove("is-error");
 }
 
 function renderSummary(): void {
@@ -420,7 +541,11 @@ function summarySourceFingerprint(): string {
 }
 
 function updateProcessButton(): void {
-  processButtonLabel.textContent = currentChapters.length ? "重新处理" : "开始处理";
+  processButtonLabel.textContent = !processingError.hidden
+    ? "重试处理"
+    : currentChapters.length
+      ? "重新处理"
+      : "开始处理";
 }
 
 function renderTokenUsage(): void {
@@ -573,6 +698,7 @@ function updateToolbarState(): void {
 
 function setStatus(message: string, working: boolean): void {
   statusText.textContent = message;
+  statusText.title = message;
   statusDot.classList.toggle("is-working", working);
 }
 
