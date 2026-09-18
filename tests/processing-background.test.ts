@@ -106,7 +106,7 @@ test("a stalled request still fails after 120 seconds without data", async () =>
   assert.match(reply.error ?? "", /连续 120 秒没有返回数据/);
 });
 
-test("oversized input is classified before any provider request", async () => {
+test("invalid caption text is classified before any provider request", async () => {
   let called = false;
   const app = await background(async () => {
     called = true;
@@ -114,9 +114,7 @@ test("oversized input is classified before any provider request", async () => {
   });
   const firstSegment = segments[0];
   assert.ok(firstSegment);
-  const result = await app.generate(
-    Array.from({ length: 2001 }, (_, index) => ({ ...firstSegment, id: `s${index}` })),
-  );
+  const result = await app.generate([{ ...firstSegment, text: "x".repeat(3001) }]);
   assert.equal(result.failure?.stage, "input");
   assert.equal(called, false);
 });

@@ -1,7 +1,7 @@
 import { TARGET_LANGUAGE_LABELS } from "./settings";
 import type { ChapterOutline, SummaryBlock, TranscriptSegment, VideoOverview } from "./types";
 
-export const SUMMARY_PROMPT_VERSION = 5;
+export const SUMMARY_PROMPT_VERSION = 6;
 export const MAX_CHAPTER_TRANSCRIPT_SEGMENTS = 2000;
 export const MAX_CHAPTER_TRANSCRIPT_CHARACTERS = 100_000;
 export const MAX_CHAPTERS = 16;

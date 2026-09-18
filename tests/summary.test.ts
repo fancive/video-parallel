@@ -17,7 +17,7 @@ const segments: TranscriptSegment[] = [
 
 test("chapter prompt is platform-neutral and rejects interval splitting", () => {
   const messages = buildSummaryMessages(segments, "zh-CN", "A useful video");
-  assert.equal(SUMMARY_PROMPT_VERSION, 5);
+  assert.equal(SUMMARY_PROMPT_VERSION, 6);
   assert.match(messages[0]?.content ?? "", /complete video transcript/);
   assert.doesNotMatch(messages[0]?.content ?? "", /YouTube|Bilibili/i);
   assert.match(messages[0]?.content ?? "", /Do not split at equal time intervals/);

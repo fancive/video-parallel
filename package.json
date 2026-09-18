@@ -1,6 +1,6 @@
 {
   "name": "video-parallel",
-  "version": "0.1.18",
+  "version": "0.1.19",
   "private": true,
   "description": "Turn YouTube and Bilibili captions into AI-generated chapter summaries synced to playback.",
   "license": "MIT",

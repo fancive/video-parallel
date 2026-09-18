@@ -9,9 +9,15 @@ export interface CompletionProgress {
   phase: "connecting" | "waiting" | "thinking" | "writing";
   contentCharacters: number;
   reasoningCharacters: number;
+  context?: string;
 }
 
 export function formatCompletionProgress(progress: CompletionProgress): string {
+  const detail = formatCompletionPhase(progress);
+  return progress.context ? `${progress.context} · ${detail}` : detail;
+}
+
+function formatCompletionPhase(progress: CompletionProgress): string {
   if (progress.phase === "writing")
     return `正在生成概要 · 已接收 ${progress.contentCharacters} 字符`;
   if (progress.phase === "thinking")

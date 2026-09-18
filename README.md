@@ -94,7 +94,12 @@ The extension accepts only model-selected chapter boundaries that correspond to 
 segments. It then produces continuous, non-overlapping chapters covering the complete video.
 
 > [!NOTE]
-> A single processing request is currently limited to 2,000 caption segments or 100,000 characters.
+> Long transcripts are automatically processed in batches of up to 2,000 caption segments
+> or 100,000 characters, then synthesized into a whole-video overview and at most 16
+> chapters with original timestamps. No captions are truncated. The panel shows batch
+> progress; token usage includes all requests when every response supplies usage.
+> The existing 10-minute total deadline applies to the entire operation, including retries
+> and synthesis. Long videos require additional model requests and may reach that deadline.
 > Videos above either limit fail explicitly instead of silently falling back to mechanical chunking.
 
 ## Providers and models

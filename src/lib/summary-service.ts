@@ -42,33 +42,82 @@ export async function generateVideoSummary(
   let usage: TokenUsage | undefined;
   let completeUsage = true;
   try {
-    const messages = buildSummaryMessages(segments, settings.targetLanguage, videoTitle);
-    for (let attempt = 0; attempt < 2; attempt++) {
-      controller.signal.throwIfAborted();
-      const completion = await requestCompletion(
-        settings,
-        messages,
-        controller.signal,
-        options.onProgress,
-      );
-      if (!completion.usage) completeUsage = false;
-      else
-        usage = {
-          inputTokens: (usage?.inputTokens ?? 0) + completion.usage.inputTokens,
-          outputTokens: (usage?.outputTokens ?? 0) + completion.usage.outputTokens,
-        };
-      try {
-        const summary = parseSummaryResponse(completion.content, segments);
-        return { ...summary, ...(completeUsage && usage ? { usage } : {}) };
-      } catch (error) {
-        if (attempt === 1)
-          throw new ProcessingError(
-            error instanceof Error ? error.message : String(error),
-            "response",
-          );
+    const summarize = async (
+      input: TranscriptSegment[],
+      context?: string,
+      synthesis = false,
+    ): Promise<GeneratedSummary> => {
+      const messages = buildSummaryMessages(input, settings.targetLanguage, videoTitle);
+      if (context && !synthesis && messages[0])
+        messages[0].content +=
+          "\nThis is one chronological portion of a longer video. Cover all supplied captions, but describe only this portion; do not infer what happens in missing portions. Preserve evidence and caveats for later whole-video synthesis.";
+      if (synthesis && messages[0])
+        messages[0].content +=
+          "\nThe input contains chronological summaries of transcript portions, not verbatim captions. Synthesize a whole-video overview and coherent chapters from ALL portions. Merge related topics across portion boundaries; do not treat a processing boundary as a topic change. Preserve the supplied start ids and supported caveats.";
+      for (let attempt = 0; attempt < 2; attempt++) {
+        controller.signal.throwIfAborted();
+        const completion = await requestCompletion(
+          settings,
+          messages,
+          controller.signal,
+          (progress) => options.onProgress?.({ ...progress, context }),
+        );
+        if (!completion.usage) completeUsage = false;
+        else
+          usage = {
+            inputTokens: (usage?.inputTokens ?? 0) + completion.usage.inputTokens,
+            outputTokens: (usage?.outputTokens ?? 0) + completion.usage.outputTokens,
+          };
+        try {
+          return parseSummaryResponse(completion.content, input);
+        } catch (error) {
+          if (attempt === 1)
+            throw new ProcessingError(
+              error instanceof Error ? error.message : String(error),
+              "response",
+            );
+        }
       }
+      throw new ProcessingError("AI 返回的概要无法解析。", "response");
+    };
+    let input = segments;
+    let round = 0;
+    const originals = new Map(segments.map((segment) => [segment.id, segment]));
+    for (;;) {
+      const batches = splitSummaryInput(input);
+      if (batches.length === 1) {
+        const summary = await summarize(input, round ? "正在汇总全文" : undefined, round > 0);
+        return { ...summary, ...(completeUsage && usage ? { usage } : {}) };
+      }
+      const reduced: TranscriptSegment[] = [];
+      for (const [index, batch] of batches.entries()) {
+        const result = await summarize(
+          batch,
+          `第 ${round + 1} 轮 · 分批处理 ${index + 1}/${batches.length}`,
+          round > 0,
+        );
+        for (const [chapterIndex, chapter] of result.chapters.entries()) {
+          const original = originals.get(chapter.startSegmentId);
+          if (!original) throw new ProcessingError("AI 返回的章节定位无效。", "response");
+          reduced.push({
+            ...original,
+            text: JSON.stringify({
+              ...(chapterIndex === 0 ? { portionOverview: result.overview } : {}),
+              title: chapter.title,
+              summary: chapter.summary,
+              keyPoints: chapter.keyPoints,
+            }),
+          });
+        }
+      }
+      // Stop pathological expanding model output instead of looping or dropping evidence.
+      const size = (items: TranscriptSegment[]) =>
+        items.reduce((sum, item) => sum + item.text.length + 1, 0);
+      if (splitSummaryInput(reduced).length > 1 && size(reduced) >= size(input))
+        throw new ProcessingError("AI 分批概要未能压缩字幕，请重试或更换模型。", "response");
+      input = reduced;
+      round++;
     }
-    throw new ProcessingError("AI 返回的概要无法解析。", "response");
   } catch (error) {
     if (options.signal?.aborted) throw options.signal.reason;
     const failure = processingFailure(
@@ -185,14 +234,34 @@ async function requestCompletion(
   }
 }
 
+function splitSummaryInput(segments: TranscriptSegment[]): TranscriptSegment[][] {
+  const batches: TranscriptSegment[][] = [];
+  let batch: TranscriptSegment[] = [];
+  let characters = 0;
+  for (const segment of segments) {
+    if (segment.text.length > MAX_CHAPTER_TRANSCRIPT_CHARACTERS)
+      throw new ProcessingError("AI 分批概要过长，无法继续汇总，请重试或更换模型。", "response");
+    if (
+      batch.length &&
+      (batch.length >= MAX_CHAPTER_TRANSCRIPT_SEGMENTS ||
+        characters + segment.text.length > MAX_CHAPTER_TRANSCRIPT_CHARACTERS)
+    ) {
+      batches.push(batch);
+      batch = [];
+      characters = 0;
+    }
+    batch.push(segment);
+    characters += segment.text.length;
+  }
+  if (batch.length) batches.push(batch);
+  return batches;
+}
+
 function validateSegments(segments: TranscriptSegment[]): void {
   const fail = (message: string): never => {
     throw new ProcessingError(message, "input");
   };
   if (segments.length === 0) fail("没有可用于生成概要的字幕。");
-  if (segments.length > MAX_CHAPTER_TRANSCRIPT_SEGMENTS)
-    fail(`字幕超过单次智能切章上限（${MAX_CHAPTER_TRANSCRIPT_SEGMENTS} 段）。`);
-  let characters = 0;
   const ids = new Set<string>();
   for (const segment of segments) {
     if (!/^[A-Za-z0-9_-]{1,80}$/.test(segment.id) || ids.has(segment.id)) fail("字幕段 ID 无效。");
@@ -204,8 +273,5 @@ function validateSegments(segments: TranscriptSegment[]): void {
     )
       fail("字幕文本或时间戳无效。");
     ids.add(segment.id);
-    characters += segment.text.length;
   }
-  if (characters > MAX_CHAPTER_TRANSCRIPT_CHARACTERS)
-    fail(`字幕超过单次智能切章上限（${MAX_CHAPTER_TRANSCRIPT_CHARACTERS} 字符）。`);
 }
