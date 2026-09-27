@@ -78,7 +78,7 @@ for (const chunkSize of [65536, Number.MAX_SAFE_INTEGER]) {
       },
     });
     assert.deepEqual(result.overview, summary.overview);
-    assert.deepEqual(result.visual, summary.visual);
+    assert.equal("visual" in result, false);
     assert.equal(latest?.reasoningCharacters, 26686);
     assert.doesNotMatch(JSON.stringify(result), /reasoning_content|rrrr/);
   });

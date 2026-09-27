@@ -1,14 +1,7 @@
 import { TARGET_LANGUAGE_LABELS } from "./settings";
-import type {
-  ChapterOutline,
-  SummaryBlock,
-  TranscriptSegment,
-  VideoOverview,
-  VisualSummary,
-} from "./types";
-import { parseVisualSummary, visualSummaryInstruction } from "./visual-summary";
+import type { ChapterOutline, SummaryBlock, TranscriptSegment, VideoOverview } from "./types";
 
-export const SUMMARY_PROMPT_VERSION = 7;
+export const SUMMARY_PROMPT_VERSION = 8;
 export const MAX_CHAPTER_TRANSCRIPT_SEGMENTS = 2000;
 export const MAX_CHAPTER_TRANSCRIPT_CHARACTERS = 100_000;
 export const MAX_CHAPTERS = 16;
@@ -16,14 +9,12 @@ export const MAX_CHAPTERS = 16;
 export interface GeneratedSummary {
   overview: VideoOverview;
   chapters: ChapterOutline[];
-  visual?: VisualSummary;
 }
 
 export function buildSummaryMessages(
   segments: TranscriptSegment[],
   targetLanguage: string,
   videoTitle: string,
-  includeVisual = true,
 ): Array<{ role: "system" | "user"; content: string }> {
   const language = TARGET_LANGUAGE_LABELS[targetLanguage] ?? targetLanguage;
   const languageInstruction =
@@ -43,11 +34,10 @@ export function buildSummaryMessages(
         "Use fewer, broader chapters when one idea continues; use a boundary only when the viewer benefits from a new heading.",
         `The first chapter must start at segment id ${firstId}. Every startSegmentId must exactly match an input id.`,
         `Return no more than ${MAX_CHAPTERS} chapters in chronological order. Cover the complete transcript without gaps.`,
-        "Before the chapters, write a 2-3 sentence overview of the complete video and 3-5 key takeaways that capture its main claims, conclusions, and important caveats.",
+        "Before the chapters, write ONE concise sentence stating the main conclusion or theme of the complete video and 3-5 key takeaways that capture its main claims, conclusions, and important caveats.",
         "For each chapter, write a specific title, a concise 2-3 sentence summary, and 2-4 evidence-based key points.",
         "Use only claims supported by the transcript. Preserve names, numbers, caveats, and uncertainty.",
         'Return only JSON with this shape: {"overview":{"summary":"…","keyPoints":["…"]},"chapters":[{"startSegmentId":"unchanged-id","title":"…","summary":"…","keyPoints":["…"]}]}. Property names and startSegmentId stay unchanged; every ellipsis must be replaced with text in the required output language.',
-        ...(includeVisual ? [visualSummaryInstruction(targetLanguage)] : []),
       ].join("\n"),
     },
     {
@@ -75,12 +65,10 @@ const TARGET_LANGUAGE_INSTRUCTIONS: Record<string, string> = {
 export function parseSummaryResponse(
   responseText: string,
   segments: TranscriptSegment[],
-  visualLanguage?: string,
 ): GeneratedSummary {
   const parsed = parseLooseJson(responseText) as {
     overview?: unknown;
     chapters?: unknown;
-    visual?: unknown;
   };
   const overview = parseOverview(parsed.overview);
   if (!Array.isArray(parsed.chapters)) throw new Error("AI 未返回章节列表。");
@@ -123,16 +111,7 @@ export function parseSummaryResponse(
   if (chapters[0]?.startSegmentId !== segments[0]?.id) {
     throw new Error("AI 返回的章节没有覆盖视频开头。");
   }
-  const selected = chapters.slice(0, MAX_CHAPTERS);
-  const visual =
-    visualLanguage === undefined
-      ? undefined
-      : parseVisualSummary(
-          parsed.visual,
-          selected.map((chapter) => chapter.startSegmentId),
-          visualLanguage,
-        );
-  return { overview, chapters: selected, ...(visual ? { visual } : {}) };
+  return { overview, chapters: chapters.slice(0, MAX_CHAPTERS) };
 }
 
 function parseOverview(value: unknown): VideoOverview {

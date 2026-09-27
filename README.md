@@ -4,7 +4,7 @@
 
 ### Watch the video. Read the structure.
 
-Turn YouTube and Bilibili captions into one conclusion and a compact interactive diagram, with full chapter summaries a click away.
+Turn YouTube and Bilibili captions into a concise overview and a standalone map of the complete content: central topic, every chapter, and its subtopics.
 
 [![Latest release](https://img.shields.io/github/v/release/fancive/video-parallel?display_name=tag&sort=semver&style=flat-square&color=f05b43)](https://github.com/fancive/video-parallel/releases/latest) [![CI](https://github.com/fancive/video-parallel/actions/workflows/ci.yml/badge.svg)](https://github.com/fancive/video-parallel/actions/workflows/ci.yml) [![Chrome 116+](https://img.shields.io/badge/Chrome-116%2B-2f59ff?style=flat-square&logo=googlechrome&logoColor=white)](#requirements) [![Manifest V3](https://img.shields.io/badge/Manifest-V3-15212b?style=flat-square)](public/manifest.json) [![Local-first](https://img.shields.io/badge/data-local--first-008f7c?style=flat-square)](PRIVACY.md) [![MIT License](https://img.shields.io/github/license/fancive/video-parallel?style=flat-square)](LICENSE)
 
@@ -12,11 +12,16 @@ Turn YouTube and Bilibili captions into one conclusion and a compact interactive
 
 </div>
 
+<p align="center">
+  <img src="docs/assets/content-outline.svg" width="1100" alt="Standalone whole-document outline with a central topic, six chapter branches, and their subtopics">
+</p>
+<p align="center"><sub>Example content, exported as SVG from the standalone outline viewer.</sub></p>
+
 ## Why video-parallel?
 
-| Conclusion + visual structure | Details when you need them | Bring your own provider |
+| Complete content architecture | Independent diagram | Bring your own provider |
 | --- | --- | --- |
-| Start with one conclusion and up to three nodes: arguments, steps, comparisons, or independent ideas. | Open a node for its explanation and related chapters. Playback follows only when the full chapter list is open. | Use OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter, Ollama, or another supported endpoint without a developer-operated backend. |
+| See the central topic, every semantic chapter, and each chapter's subtopics in one connected outline. | Open a separate viewer, zoom to inspect details, fit the whole diagram, or export a self-contained SVG. | Use OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter, Ollama, or another supported endpoint without a developer-operated backend. |
 
 The extension reads caption tracks already available on YouTube and Bilibili. It does not upload
 audio or depend on a transcript proxy. The complete transcript is sent to your configured provider
@@ -65,16 +70,19 @@ For a local Ollama server, use `http://localhost:11434/v1` and leave the API Key
 The visual-first reader described below is available in the source build on `main`;
 it has not yet been published as a new GitHub release.
 
-- A compact visual summary: one conclusion plus up to three interactive nodes. Chinese labels aim
-  for about 100 characters in total (140 maximum); other languages use a bounded reading budget.
-- Content-driven argument trees, step flows, comparisons on a shared dimension, or independent
-  topic cards. Node explanations link to one or more original chapter starts.
-- Full-video takeaways and all chapter summaries remain available in collapsed details and in
-  complete Markdown exports. Expanding a node or chapter does not seek; timestamp buttons do.
+- A concise overview and a **View full outline** entry in the Side Panel. The diagram opens in its
+  own extension tab instead of turning summary cards into a small diagram.
+- One complete, connected mind map: the video topic at the center, all chapters around it, and
+  each chapter's key points as subtopics. Connections express hierarchy, not causality.
+- Zoom, fit-to-view, original-size viewing, a readable text outline, and standalone SVG export.
+- Existing summaries can open the diagram immediately without another model request. All supplied
+  chapters and key points are retained; the diagram is not limited to three takeaways or 100 characters.
+- Full-video takeaways and chapter summaries remain available in collapsed details and complete
+  Markdown exports. Timestamp buttons seek playback; opening the outline does not.
 - Active-chapter highlighting during playback. Automatic scrolling applies only while the full
-  chapter list is open, so reading the diagram is not interrupted.
-- Existing version-6 summary caches remain readable as labeled legacy content; process the video
-  again to generate a diagram. New caches validate the diagram and its chapter references.
+  chapter list is open, so it does not pull the panel away from the overview.
+- Prompt-version 6 and 7 caches remain readable. The viewer receives a snapshot of the selected
+  video's chapter content, so a later video switch does not change an already-open diagram.
 - Small, standard, and large Side Panel reading sizes independent of the video page zoom.
 - Full-video takeaways and chapter summaries consistently written in the selected output language:
   Simplified Chinese, Traditional Chinese, Japanese, Korean, English, French, German, or Spanish.
@@ -89,9 +97,9 @@ YouTube or Bilibili caption track
         ↓
 Complete transcript + stable segment IDs + timestamps
         ↓
-Target-language conversion + semantic chaptering + visual synthesis
+Target-language conversion + semantic chaptering + summarization
         ↓
-Conclusion + interactive diagram → on-demand chapters + local cache + Markdown
+Concise overview + complete chapters → standalone outline SVG + local cache + Markdown
 ```
 
 The extension accepts only model-selected chapter boundaries that correspond to real caption
@@ -100,8 +108,8 @@ segments. It then produces continuous, non-overlapping chapters covering the com
 > [!NOTE]
 > Long transcripts are automatically processed in batches of up to 2,000 caption segments
 > or 100,000 characters, then synthesized into a whole-video overview and at most 16
-> chapters with original timestamps. The diagram is generated only with the final whole-video
-> result; intermediate batches preserve detailed evidence and caveats. No captions are truncated.
+> chapters with original timestamps. The outline is drawn locally from all final chapters and
+> their key points; it does not require a separate model response. No captions are truncated.
 > The panel shows batch progress; token usage includes all requests when every response supplies usage.
 > The existing 10-minute total deadline applies to the entire operation, including retries
 > and synthesis. Long videos require additional model requests and may reach that deadline.

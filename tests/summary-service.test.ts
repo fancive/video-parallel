@@ -175,21 +175,19 @@ test("other providers retain their non-streaming request compatibility", async (
   assert.deepEqual(result.overview, summary.overview);
 });
 
-test("invalid visual output retries with validation feedback without accepting a truncated label", async (t) => {
+test("invalid summary output retries with validation feedback", async (t) => {
   let calls = 0;
   t.mock.method(globalThis, "fetch", async (_url: unknown, init: RequestInit) => {
     calls++;
     const body = JSON.parse(String(init.body));
     if (calls === 2) assert.match(body.messages.at(-1).content, /failed validation/);
-    const value =
-      calls === 1
-        ? { ...summary, visual: { ...summary.visual, conclusion: "字".repeat(200) } }
-        : summary;
+    const value = calls === 1 ? { ...summary, overview: { summary: "", keyPoints: [] } } : summary;
     return new Response(
       JSON.stringify({ choices: [{ message: { content: JSON.stringify(value) } }] }),
     );
   });
   const result = await generateVideoSummary(DEFAULT_SETTINGS, segments, "Fixture");
   assert.equal(calls, 2);
-  assert.deepEqual(result.visual, summary.visual);
+  assert.deepEqual(result.overview, summary.overview);
+  assert.equal("visual" in result, false);
 });

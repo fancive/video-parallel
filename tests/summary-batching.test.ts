@@ -65,7 +65,7 @@ test("583 segments / 105646 characters reach bounded requests without losing cap
     assert.ok(batch.reduce((sum, segment) => sum + segment.text.length, 0) <= 100000);
     if (requests.length === 3) {
       assert.match(JSON.parse(String(init.body)).messages[0].content, /ALL portions/);
-      assert.match(JSON.parse(String(init.body)).messages[0].content, /Also return visual/);
+      assert.doesNotMatch(JSON.parse(String(init.body)).messages[0].content, /Also return visual/);
       assert.ok(batch.every((segment) => segment.text.includes("重要限制")));
       return response(batch);
     }

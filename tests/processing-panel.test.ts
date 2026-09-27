@@ -92,6 +92,9 @@ async function panel(seed: Record<string, unknown> = {}) {
   let loads = 0;
   let copied = "";
   let cacheFails = false;
+  let outlineFails = false;
+  const outlineSessions: Record<string, unknown> = {};
+  const openedOutlines: string[] = [];
   let stored: Record<string, unknown> = {
     [SETTINGS_KEY]: { ...DEFAULT_SETTINGS, apiKey: "private-test-key" },
     ...seed,
@@ -119,6 +122,7 @@ async function panel(seed: Record<string, unknown> = {}) {
   runInNewContext((await bundled).outputFiles[0]?.text ?? "", {
     URL,
     URLSearchParams,
+    crypto,
     console,
     Date,
     Error,
@@ -177,6 +181,7 @@ async function panel(seed: Record<string, unknown> = {}) {
       runtime: {
         id: "test-extension",
         getManifest: () => manifest,
+        getURL: (path: string) => `chrome-extension://test/${path}`,
         onMessage: { addListener: () => {} },
         sendMessage: async (message: { type: string }) => {
           if (message.type === "LOAD_VIDEO") {
@@ -190,6 +195,9 @@ async function panel(seed: Record<string, unknown> = {}) {
       },
       permissions: { contains: async () => true },
       tabs: {
+        create: async ({ url }: { url: string }) => {
+          openedOutlines.push(url);
+        },
         onUpdated: {
           addListener: (listener: typeof tabUpdated) => {
             tabUpdated = listener;
@@ -197,6 +205,15 @@ async function panel(seed: Record<string, unknown> = {}) {
         },
       },
       storage: {
+        session: {
+          set: async (value: Record<string, unknown>) => {
+            if (outlineFails) throw new Error("Session storage unavailable");
+            Object.assign(outlineSessions, value);
+          },
+          remove: async (key: string) => {
+            delete outlineSessions[key];
+          },
+        },
         onChanged: {
           addListener: (listener: typeof storageChanged) => {
             storageChanged = listener;
@@ -216,6 +233,11 @@ async function panel(seed: Record<string, unknown> = {}) {
   assert.equal(node("workspace").hidden, false, node("emptyMessage").textContent);
   return {
     node,
+    outlineSessions: () => outlineSessions,
+    openedOutlines: () => openedOutlines,
+    failOutline: () => {
+      outlineFails = true;
+    },
     stored: () => stored,
     providerSignal: () => providerSignal,
     copied: () => copied,
@@ -366,20 +388,20 @@ test("navigation during caption loading starts a fresh load and discards the ear
   assert.equal(app.node("statusText").textContent, "字幕已就绪");
 });
 
-test("a generated diagram survives a cache reload and full Markdown remains available", async () => {
+test("a summary cache restores the independent outline entry and full Markdown", async () => {
   const app = await panel();
   app.node("processButton").click();
   await flush();
   const cached = await panel(app.stored());
   const all = (node: Element): Element[] => [node, ...node.children.flatMap(all)];
-  assert.ok(all(cached.node("summaryList")).some((node) => node.className === "node-button"));
+  assert.ok(all(cached.node("summaryList")).some((node) => node.className === "outline-button"));
   cached.node("copyButton").click();
   await flush();
   assert.match(cached.copied(), /全文结论/);
   assert.match(cached.copied(), /章节内容/);
 });
 
-test("old caches remain explicitly labeled and malformed new diagrams never load", async () => {
+test("old caches can open outlines without the rejected visual schema", async () => {
   const { summaryCacheStorageKey } = await import("../src/lib/video-source");
   const { providerFingerprint } = await import("../src/lib/settings");
   const app = await panel();
@@ -400,11 +422,53 @@ test("old caches remain explicitly labeled and malformed new diagrams never load
   });
   const all = (node: Element): Element[] => [node, ...node.children.flatMap(all)];
   assert.equal(legacy.node("chapterCount").textContent, "1 章");
-  assert.ok(all(legacy.node("summaryList")).some((node) => /旧版摘要/.test(node.textContent)));
+  assert.ok(all(legacy.node("summaryList")).some((node) => node.className === "outline-button"));
   assert.equal(
     all(legacy.node("summaryList")).filter((node) => node.className === "node-button").length,
     0,
   );
   const invalid = await panel({ [key]: { ...cache, visual: { ...success.visual, nodes: [] } } });
-  assert.equal(invalid.node("chapterCount").textContent, "等待处理");
+  assert.equal(invalid.node("chapterCount").textContent, "1 章");
+  const previousKey = summaryCacheStorageKey(
+    { sourceKey: "youtube:Qr15lGAGKpo", videoId: "Qr15lGAGKpo" },
+    "zh-CN",
+    providerFingerprint(DEFAULT_SETTINGS),
+    7,
+  );
+  const previous = await panel({
+    [previousKey]: { ...cache, version: 5, promptVersion: 7, visual: { nodes: [] } },
+  });
+  assert.equal(previous.node("chapterCount").textContent, "1 章");
+  const open = all(previous.node("summaryList")).find(
+    (node) => node.className === "outline-button",
+  );
+  assert.ok(open);
+  open.click();
+  await flush();
+  assert.equal(previous.openedOutlines().length, 1);
+});
+
+test("the real panel button opens a snapshot of the current video, and opening failures preserve its summary", async () => {
+  const app = await panel();
+  app.node("processButton").click();
+  await flush();
+  const all = (node: Element): Element[] => [node, ...node.children.flatMap(all)];
+  const button = all(app.node("summaryList")).find((node) => node.className === "outline-button");
+  assert.ok(button);
+  button.click();
+  await flush();
+  assert.equal(app.openedOutlines().length, 1);
+  const [snapshot] = Object.values(app.outlineSessions()) as Array<{
+    title: string;
+    chapters: unknown[];
+  }>;
+  assert.equal(snapshot?.title, "Test video");
+  assert.equal(snapshot?.chapters.length, 1);
+  assert.doesNotMatch(JSON.stringify(app.outlineSessions()), /Private transcript|private-test-key/);
+  app.failOutline();
+  button.click();
+  await flush();
+  assert.equal(app.openedOutlines().length, 1);
+  assert.match(app.node("toast").textContent, /无法打开全文架构图/);
+  assert.equal(app.node("chapterCount").textContent, "1 章");
 });

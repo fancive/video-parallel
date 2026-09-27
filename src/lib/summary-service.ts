@@ -46,14 +46,8 @@ export async function generateVideoSummary(
       input: TranscriptSegment[],
       context?: string,
       synthesis = false,
-      includeVisual = false,
     ): Promise<GeneratedSummary> => {
-      const messages = buildSummaryMessages(
-        input,
-        settings.targetLanguage,
-        videoTitle,
-        includeVisual,
-      );
+      const messages = buildSummaryMessages(input, settings.targetLanguage, videoTitle);
       if (context && !synthesis && messages[0])
         messages[0].content +=
           "\nThis is one chronological portion of a longer video. Cover all supplied captions, but describe only this portion; do not infer what happens in missing portions. Preserve evidence and caveats for later whole-video synthesis.";
@@ -75,11 +69,7 @@ export async function generateVideoSummary(
             outputTokens: (usage?.outputTokens ?? 0) + completion.usage.outputTokens,
           };
         try {
-          return parseSummaryResponse(
-            completion.content,
-            input,
-            includeVisual ? settings.targetLanguage : undefined,
-          );
+          return parseSummaryResponse(completion.content, input);
         } catch (error) {
           if (attempt === 1)
             throw new ProcessingError(
@@ -88,7 +78,7 @@ export async function generateVideoSummary(
             );
           messages.push({
             role: "user",
-            content: `The response failed validation: ${error instanceof Error ? error.message : String(error)}. Regenerate the complete JSON, following the required schema and reading budget; preserve supported caveats.`,
+            content: `The response failed validation: ${error instanceof Error ? error.message : String(error)}. Regenerate the complete JSON, following the required schema; preserve supported caveats.`,
           });
         }
       }
@@ -100,7 +90,7 @@ export async function generateVideoSummary(
     for (;;) {
       const batches = splitSummaryInput(input);
       if (batches.length === 1) {
-        const summary = await summarize(input, round ? "正在汇总全文" : undefined, round > 0, true);
+        const summary = await summarize(input, round ? "正在汇总全文" : undefined, round > 0);
         return { ...summary, ...(completeUsage && usage ? { usage } : {}) };
       }
       const reduced: TranscriptSegment[] = [];

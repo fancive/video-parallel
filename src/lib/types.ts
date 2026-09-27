@@ -88,20 +88,6 @@ export interface VideoOverview {
   keyPoints: string[];
 }
 
-export interface VisualNode {
-  label: string;
-  relation: string;
-  detail: string;
-  chapterStartIds: string[];
-}
-
-export interface VisualSummary {
-  kind: "argument" | "flow" | "comparison" | "topics";
-  conclusion: string;
-  focus: string;
-  nodes: VisualNode[];
-}
-
 export interface ChapterOutline extends SummaryContent {
   startSegmentId: string;
 }
@@ -119,14 +105,13 @@ export interface TokenUsage {
 }
 
 export interface SummaryCache {
-  version: 4 | 5;
+  version: 4 | 5 | 6;
   promptVersion: number;
   sourceKey: string;
   targetLanguage: string;
   providerFingerprint: string;
   sourceFingerprint: string;
   overview: VideoOverview;
-  visual?: VisualSummary;
   chapters: Array<{ startMs: number; content: SummaryContent }>;
   usage?: TokenUsage;
   updatedAt: number;

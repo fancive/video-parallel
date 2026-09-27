@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
 import { createSummaryView, followVisibleChapter } from "../src/lib/summary-view";
-import type { SummaryBlock, VisualSummary } from "../src/lib/types";
+import type { SummaryBlock } from "../src/lib/types";
 
 // Exercise rendering and handlers without a browser; layout is checked separately.
 class Element {
@@ -57,29 +57,14 @@ const chapters: SummaryBlock[] = Array.from({ length: 16 }, (_, index) => ({
   endMs: (index + 1) * 60000,
   content: { title: `章节 ${index}`, summary: "完整细节", keyPoints: ["关键条件"] },
 }));
-const visual: VisualSummary = {
-  kind: "argument",
-  conclusion: "简短结论",
-  focus: "观点关系",
-  nodes: [
-    {
-      label: "<img src=x onerror=alert(1)>",
-      relation: "依据",
-      detail: "详细解释",
-      chapterStartIds: ["s0", "s15"],
-    },
-    { label: "不要遗漏条件", relation: "条件", detail: "限制说明", chapterStartIds: ["s2"] },
-  ],
-};
-
-test("sixteen chapters stay collapsed; nodes expand without seeking and link to multiple chapters", (t) => {
+test("the panel opens an independent outline rather than rendering summary nodes", (t) => {
   installDocument(t);
   const seeks: number[] = [];
+  let opens = 0;
   const view = createSummaryView(
     { summary: "完整概览", keyPoints: ["要点"] },
     chapters,
-    visual,
-    chapters.map((_, index) => `s${index}`),
+    () => opens++,
     (time) => seeks.push(time),
   ) as unknown as Element;
   assert.ok(
@@ -88,45 +73,17 @@ test("sixteen chapters stay collapsed; nodes expand without seeking and link to 
       .filter((node) => node.tag === "details")
       .every((node) => !node.open),
   );
-  const buttons = view.all().filter((node) => node.className === "node-button");
-  const detail = view.all().find((node) => node.className === "node-detail");
-  assert.ok(detail?.hidden);
-  buttons[0]?.click();
-  assert.equal(detail.hidden, false);
-  assert.deepEqual(seeks, []);
-  assert.ok(buttons[0]?.all().some((node) => node.textContent === visual.nodes[0]?.label));
-  const links = detail.all().filter((node) => node.className === "chapter-seek");
-  assert.equal(links.length, 2);
-  links[1]?.click();
-  assert.deepEqual(seeks, [900]);
-  buttons[1]?.click();
-  assert.equal(buttons[0]?.attributes.get("aria-expanded"), "false");
-  assert.ok(detail.all().some((node) => node.textContent === "限制说明"));
-  detail
-    .all()
-    .find((node) => node.className === "detail-dismiss")
-    ?.click();
-  assert.ok(detail.hidden);
-  assert.ok(buttons[1]?.focused);
-});
-
-test("legacy content is explicitly labeled and remains collapsed", (t) => {
-  installDocument(t);
-  const view = createSummaryView(
-    { summary: "Old", keyPoints: ["Point"] },
-    chapters,
-    null,
-    [],
-    () => {},
-  ) as unknown as Element;
-  assert.ok(view.all().some((node) => /旧版摘要/.test(node.textContent)));
   assert.equal(view.all().filter((node) => node.className === "node-button").length, 0);
-  assert.ok(
-    view
-      .all()
-      .filter((node) => node.tag === "details")
-      .every((node) => !node.open),
-  );
+  view
+    .all()
+    .find((node) => node.className === "outline-button")
+    ?.click();
+  assert.equal(opens, 1);
+  assert.deepEqual(seeks, []);
+  const links = view.all().filter((node) => node.className === "chapter-seek");
+  assert.equal(links.length, 16);
+  links[15]?.click();
+  assert.deepEqual(seeks, [900]);
 });
 
 test("playback may scroll only when the complete chapter list is open", () => {

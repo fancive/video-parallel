@@ -1,5 +1,7 @@
 import { type CompletionProgress, formatCompletionProgress } from "./lib/completion-stream";
+import { makeContentOutline } from "./lib/content-outline";
 import { buildSummaryMarkdown, sanitizeFilename } from "./lib/markdown";
+import { openOutlinePage } from "./lib/outline-session";
 import {
   DEFAULT_PANEL_PREFERENCES,
   normalizePanelPreferences,
@@ -37,10 +39,8 @@ import type {
   TokenUsage,
   VideoContext,
   VideoOverview,
-  VisualSummary,
 } from "./lib/types";
 import { summaryCacheStorageKey } from "./lib/video-source";
-import { parseVisualSummary } from "./lib/visual-summary";
 
 interface RuntimeResponse {
   ok: boolean;
@@ -83,8 +83,6 @@ let currentVideo: VideoContext | null = null;
 let boundTabId: number | undefined;
 let currentOverview: VideoOverview | null = null;
 let currentChapters: SummaryBlock[] = [];
-let currentVisual: VisualSummary | null = null;
-let currentChapterIds: string[] = [];
 let currentTokenUsage: TokenUsage | null = null;
 let settings: AppSettings = DEFAULT_SETTINGS;
 let panelPreferences: PanelPreferences = DEFAULT_PANEL_PREFERENCES;
@@ -207,8 +205,6 @@ async function loadVideo(): Promise<void> {
 
     currentVideo = response.video;
     currentOverview = null;
-    currentVisual = null;
-    currentChapterIds = [];
     currentChapters = [];
     currentTokenUsage = null;
     await restoreSummaryCache();
@@ -226,8 +222,6 @@ async function loadVideo(): Promise<void> {
     if (generation !== loadingGeneration) return;
     currentVideo = null;
     currentOverview = null;
-    currentVisual = null;
-    currentChapterIds = [];
     currentChapters = [];
     currentTokenUsage = null;
     emptyTitle.textContent = "还不能生成视频概要";
@@ -301,16 +295,14 @@ async function processVideo(): Promise<void> {
     const chapters = makeChapterBlocks(video.segments, response.chapters);
     if (chapters.length === 0) throw new Error("模型没有返回可显示的章节。");
     currentOverview = response.overview;
-    currentVisual = response.visual ?? null;
-    currentChapterIds = response.chapters.map((chapter) => chapter.startSegmentId);
     currentChapters = chapters;
     currentTokenUsage = isTokenUsage(response.usage) ? response.usage : null;
     renderSummary();
     stage = "cache";
     await saveSummaryCache();
     if (!isCurrentRun()) return;
-    setStatus(`已生成结构图和 ${chapters.length} 个章节`, false);
-    showToast("结构图与完整摘要已保存在本地");
+    setStatus(`已生成 ${chapters.length} 个章节，可查看全文架构图`, false);
+    showToast("完整摘要已保存，可直接打开全文架构图");
   } catch (error) {
     if (!isCurrentRun()) return;
     if (controller.signal.aborted) {
@@ -384,7 +376,7 @@ function renderSummary(): void {
     const title = document.createElement("strong");
     title.textContent = "先看懂重点，再展开细节";
     const copy = document.createElement("span");
-    copy.textContent = "开始处理，生成一句结论、一张结构图和可回看的章节。";
+    copy.textContent = "开始处理，生成简短结论、完整章节和独立的全文架构图。";
     empty.append(title, copy);
     summaryList.appendChild(empty);
     updateProcessButton();
@@ -396,8 +388,7 @@ function renderSummary(): void {
       createSummaryView(
         currentOverview,
         currentChapters,
-        currentVisual,
-        currentChapterIds,
+        () => void openCurrentOutline(),
         (seconds) => void seekTo(seconds),
       ),
     );
@@ -405,10 +396,27 @@ function renderSummary(): void {
   updateProcessButton();
 }
 
+async function openCurrentOutline(): Promise<void> {
+  if (!currentVideo || currentChapters.length === 0) return;
+  if (!hasExtensionRuntime) {
+    window.localStorage.setItem(
+      "video_parallel_outline_preview",
+      JSON.stringify(makeContentOutline(currentVideo.title, currentChapters)),
+    );
+    window.open("outline.html?preview=panel", "_blank", "noopener");
+    return;
+  }
+  try {
+    await openOutlinePage(currentVideo.title, currentChapters);
+  } catch (error) {
+    showToast(
+      `无法打开全文架构图：${redactError(error instanceof Error ? error.message : String(error), settings.apiKey)}`,
+    );
+  }
+}
+
 async function reloadSummaryCache(): Promise<void> {
   currentOverview = null;
-  currentVisual = null;
-  currentChapterIds = [];
   currentChapters = [];
   currentTokenUsage = null;
   await restoreSummaryCache();
@@ -424,8 +432,9 @@ async function restoreSummaryCache(): Promise<void> {
   const generation = loadingGeneration;
   const sourceFingerprint = summarySourceFingerprint();
   const key = summaryCacheKey();
+  const previousKey = summaryCacheKey(7);
   const legacyKey = summaryCacheKey(6);
-  const stored = await chrome.storage.local.get([key, legacyKey]);
+  const stored = await chrome.storage.local.get([key, previousKey, legacyKey]);
   if (
     currentVideo !== video ||
     generation !== loadingGeneration ||
@@ -433,12 +442,13 @@ async function restoreSummaryCache(): Promise<void> {
     settings.targetLanguage !== language
   )
     return;
-  const candidate = stored[key] ?? stored[legacyKey];
+  const candidate = stored[key] ?? stored[previousKey] ?? stored[legacyKey];
   const cache = candidate as SummaryCache | undefined;
   if (
     !cache ||
     !(
-      (cache.version === 5 && cache.promptVersion === SUMMARY_PROMPT_VERSION) ||
+      (cache.version === 6 && cache.promptVersion === SUMMARY_PROMPT_VERSION) ||
+      (cache.version === 5 && cache.promptVersion === 7) ||
       (cache.version === 4 && cache.promptVersion === 6)
     ) ||
     cache.sourceKey !== video.sourceKey ||
@@ -457,20 +467,6 @@ async function restoreSummaryCache(): Promise<void> {
     outline.push({ startSegmentId: segment.id, ...cached.content });
   }
   if (outline[0]?.startSegmentId !== currentVideo.segments[0]?.id) return;
-  let visual: VisualSummary | null = null;
-  if (cache.version === 5) {
-    try {
-      visual = parseVisualSummary(
-        cache.visual,
-        outline.map((chapter) => chapter.startSegmentId),
-        language,
-      );
-    } catch {
-      return;
-    }
-  }
-  currentChapterIds = outline.map((chapter) => chapter.startSegmentId);
-  currentVisual = visual;
   currentOverview = cache.overview;
   currentChapters = makeChapterBlocks(currentVideo.segments, outline);
   currentTokenUsage = isTokenUsage(cache.usage) ? cache.usage : null;
@@ -479,14 +475,13 @@ async function restoreSummaryCache(): Promise<void> {
 async function saveSummaryCache(): Promise<void> {
   if (!currentVideo || !currentOverview) return;
   const cache: SummaryCache = {
-    version: 5,
+    version: 6,
     promptVersion: SUMMARY_PROMPT_VERSION,
     sourceKey: currentVideo.sourceKey,
     targetLanguage: settings.targetLanguage,
     providerFingerprint: providerFingerprint(settings),
     sourceFingerprint: summarySourceFingerprint(),
     overview: currentOverview,
-    ...(currentVisual ? { visual: currentVisual } : {}),
     chapters: currentChapters.map(({ startMs, content }) => ({ startMs, content })),
     ...(currentTokenUsage ? { usage: currentTokenUsage } : {}),
     updatedAt: Date.now(),
@@ -794,32 +789,6 @@ function renderLocalPreview(): void {
       keyPoints: ["上下文层负责新鲜度、来源和访问控制", "产品逻辑与数据获取职责由此解耦"],
     },
   ]);
-  currentChapterIds = ["s0", "s2"];
-  currentVisual = {
-    kind: "argument",
-    conclusion: "智能体的可靠性，取决于持续获得可信上下文。",
-    focus: "从瓶颈到解决办法",
-    nodes: [
-      {
-        relation: "瓶颈",
-        label: "单次检索跟不上任务变化",
-        detail: "任务状态持续变化，静态检索不能代替新鲜、可验证的信息供给。",
-        chapterStartIds: ["s0"],
-      },
-      {
-        relation: "方法",
-        label: "将上下文独立为基础服务",
-        detail: "独立层负责获取、清洗和交付上下文，让应用专注任务逻辑。",
-        chapterStartIds: ["s2"],
-      },
-      {
-        relation: "条件",
-        label: "保留信息来源与访问权限",
-        detail: "集中供给上下文仍须保留来源和权限边界，不能只追求信息量。",
-        chapterStartIds: ["s0", "s2"],
-      },
-    ],
-  };
   renderVideo();
   setStatus("示例预览 · 不会调用模型", false);
   showState("workspace");
