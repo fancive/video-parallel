@@ -395,6 +395,12 @@ test("a summary cache restores the independent outline entry and full Markdown",
   const cached = await panel(app.stored());
   const all = (node: Element): Element[] => [node, ...node.children.flatMap(all)];
   assert.ok(all(cached.node("summaryList")).some((node) => node.className === "outline-button"));
+  const image = all(cached.node("summaryList")).find(
+    (node) => node.className === "outline-preview-button",
+  )?.children[0] as Element & { src: string };
+  assert.ok(image);
+  assert.match(decodeURIComponent(image.src), /Test video/);
+  assert.match(decodeURIComponent(image.src), /第一章/);
   cached.node("copyButton").click();
   await flush();
   assert.match(cached.copied(), /全文结论/);

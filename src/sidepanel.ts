@@ -390,6 +390,7 @@ function renderSummary(): void {
         currentChapters,
         () => void openCurrentOutline(),
         (seconds) => void seekTo(seconds),
+        currentVideo?.title ?? "视频内容",
       ),
     );
   activeChapterId = "";

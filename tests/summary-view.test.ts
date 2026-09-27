@@ -31,6 +31,13 @@ class Element {
   click() {
     this.listeners.get("click")?.();
   }
+  showModal() {
+    this.open = true;
+  }
+  close() {
+    this.open = false;
+    this.listeners.get("close")?.();
+  }
   focus() {
     this.focused = true;
   }
@@ -57,7 +64,7 @@ const chapters: SummaryBlock[] = Array.from({ length: 16 }, (_, index) => ({
   endMs: (index + 1) * 60000,
   content: { title: `章节 ${index}`, summary: "完整细节", keyPoints: ["关键条件"] },
 }));
-test("the panel opens an independent outline rather than rendering summary nodes", (t) => {
+test("the panel displays the full outline and enlarges it without seeking or opening a tab", (t) => {
   installDocument(t);
   const seeks: number[] = [];
   let opens = 0;
@@ -66,6 +73,7 @@ test("the panel opens an independent outline rather than rendering summary nodes
     chapters,
     () => opens++,
     (time) => seeks.push(time),
+    "视频主题",
   ) as unknown as Element;
   assert.ok(
     view
@@ -74,6 +82,34 @@ test("the panel opens an independent outline rather than rendering summary nodes
       .every((node) => !node.open),
   );
   assert.equal(view.all().filter((node) => node.className === "node-button").length, 0);
+  const image = view.all().find((node) => node.tag === "img") as Element & { src: string };
+  assert.ok(image);
+  const svg = decodeURIComponent(image.src.split(",")[1] ?? "");
+  assert.match(svg, /视频主题/);
+  assert.match(svg, /章节 15/);
+  assert.match(svg, /关键条件/);
+  const preview = view.all().find((node) => node.className === "outline-preview-button");
+  const dialog = view.all().find((node) => node.tag === "dialog");
+  assert.ok(preview && dialog);
+  assert.equal(dialog.open, false);
+  preview.click();
+  assert.equal(dialog.open, true);
+  assert.equal(opens, 0);
+  assert.deepEqual(seeks, []);
+  const zoom = dialog.all().find((node) => node.tag === "output");
+  assert.equal(zoom?.textContent, "100%");
+  dialog
+    .all()
+    .find((node) => node.textContent === "放大")
+    ?.click();
+  assert.equal(zoom?.textContent, "125%");
+  dialog
+    .all()
+    .find((node) => node.textContent === "关闭")
+    ?.click();
+  assert.equal(dialog.open, false);
+  assert.equal(preview.focused, true);
+
   view
     .all()
     .find((node) => node.className === "outline-button")

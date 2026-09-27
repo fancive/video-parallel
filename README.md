@@ -70,8 +70,8 @@ For a local Ollama server, use `http://localhost:11434/v1` and leave the API Key
 The visual-first reader described below is available in the source build on `main`;
 it has not yet been published as a new GitHub release.
 
-- A concise overview and a **View full outline** entry in the Side Panel. The diagram opens in its
-  own extension tab instead of turning summary cards into a small diagram.
+- A concise overview followed by the complete outline image in the Side Panel. Click the image
+  to zoom and scroll in place; optionally open a separate tab for a larger workspace and SVG export.
 - One complete, connected mind map: the video topic at the center, all chapters around it, and
   each chapter's key points as subtopics. Connections express hierarchy, not causality.
 - Zoom, fit-to-view, original-size viewing, a readable text outline, and standalone SVG export.
