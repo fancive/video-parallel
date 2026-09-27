@@ -81,7 +81,8 @@ it has not yet been published as a new GitHub release.
   Markdown exports. Timestamp buttons seek playback; opening the outline does not.
 - Active-chapter highlighting during playback. Automatic scrolling applies only while the full
   chapter list is open, so it does not pull the panel away from the overview.
-- Prompt-version 6 and 7 caches remain readable. The viewer receives a snapshot of the selected
+- Generated summaries contain at most 8 chapters; related topics are merged while preserving full-video coverage.
+- Prompt-version 6, 7, and 8 caches with at most 8 chapters remain readable. Larger cached summaries require reprocessing. The viewer receives a snapshot of the selected
   video's chapter content, so a later video switch does not change an already-open diagram.
 - Small, standard, and large Side Panel reading sizes independent of the video page zoom.
 - Full-video takeaways and chapter summaries consistently written in the selected output language:

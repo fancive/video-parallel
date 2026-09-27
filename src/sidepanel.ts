@@ -27,7 +27,7 @@ import {
   TARGET_LANGUAGE_LABELS,
 } from "./lib/settings";
 import { tabIdFromSidePanelSearch } from "./lib/side-panel";
-import { makeChapterBlocks, SUMMARY_PROMPT_VERSION } from "./lib/summary";
+import { MAX_CHAPTERS, makeChapterBlocks, SUMMARY_PROMPT_VERSION } from "./lib/summary";
 import { generateVideoSummary } from "./lib/summary-service";
 import { createSummaryView, followVisibleChapter } from "./lib/summary-view";
 import type {
@@ -432,9 +432,10 @@ async function restoreSummaryCache(): Promise<void> {
   const generation = loadingGeneration;
   const sourceFingerprint = summarySourceFingerprint();
   const key = summaryCacheKey();
+  const outlineKey = summaryCacheKey(8);
   const previousKey = summaryCacheKey(7);
   const legacyKey = summaryCacheKey(6);
-  const stored = await chrome.storage.local.get([key, previousKey, legacyKey]);
+  const stored = await chrome.storage.local.get([key, outlineKey, previousKey, legacyKey]);
   if (
     currentVideo !== video ||
     generation !== loadingGeneration ||
@@ -442,12 +443,13 @@ async function restoreSummaryCache(): Promise<void> {
     settings.targetLanguage !== language
   )
     return;
-  const candidate = stored[key] ?? stored[previousKey] ?? stored[legacyKey];
+  const candidate = stored[key] ?? stored[outlineKey] ?? stored[previousKey] ?? stored[legacyKey];
   const cache = candidate as SummaryCache | undefined;
   if (
     !cache ||
     !(
-      (cache.version === 6 && cache.promptVersion === SUMMARY_PROMPT_VERSION) ||
+      (cache.version === 6 &&
+        (cache.promptVersion === SUMMARY_PROMPT_VERSION || cache.promptVersion === 8)) ||
       (cache.version === 5 && cache.promptVersion === 7) ||
       (cache.version === 4 && cache.promptVersion === 6)
     ) ||
@@ -456,7 +458,8 @@ async function restoreSummaryCache(): Promise<void> {
     cache.providerFingerprint !== fingerprint ||
     cache.sourceFingerprint !== sourceFingerprint ||
     !isVideoOverview(cache.overview) ||
-    !Array.isArray(cache.chapters)
+    !Array.isArray(cache.chapters) ||
+    cache.chapters.length > MAX_CHAPTERS
   )
     return;
 

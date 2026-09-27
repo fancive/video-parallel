@@ -191,3 +191,36 @@ test("invalid summary output retries with validation feedback", async (t) => {
   assert.deepEqual(result.overview, summary.overview);
   assert.equal("visual" in result, false);
 });
+
+test("excess chapters trigger a merge retry instead of truncating the final topic", async (t) => {
+  const input = Array.from({ length: 9 }, (_, index) => ({
+    id: `s${index}`,
+    startMs: index * 1000,
+    durationMs: 1000,
+    text: `Topic ${index}`,
+  }));
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async (_url: unknown, init: RequestInit) => {
+    calls++;
+    const body = JSON.parse(String(init.body));
+    if (calls === 2) assert.match(body.messages.at(-1).content, /超过 8 章/);
+    const chapters =
+      calls === 1
+        ? input.map((segment) => ({
+            startSegmentId: segment.id,
+            title: segment.text,
+            summary: segment.text,
+            keyPoints: [],
+          }))
+        : [{ ...summary.chapters[0], summary: "All topics, including Topic 8" }];
+    return new Response(
+      JSON.stringify({
+        choices: [{ message: { content: JSON.stringify({ ...summary, chapters }) } }],
+      }),
+    );
+  });
+  const result = await generateVideoSummary(DEFAULT_SETTINGS, input, "Fixture");
+  assert.equal(calls, 2);
+  assert.equal(result.chapters.length, 1);
+  assert.match(result.chapters[0]?.summary ?? "", /Topic 8/);
+});

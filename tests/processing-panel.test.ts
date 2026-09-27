@@ -472,3 +472,34 @@ test("the real panel button opens a snapshot of the current video, and opening f
   assert.match(app.node("toast").textContent, /无法打开全文架构图/);
   assert.equal(app.node("chapterCount").textContent, "1 章");
 });
+
+test("over-limit caches are not restored while compatible prompt-eight caches remain readable", async () => {
+  const { summaryCacheStorageKey } = await import("../src/lib/video-source");
+  const { providerFingerprint } = await import("../src/lib/settings");
+  const app = await panel();
+  app.node("processButton").click();
+  await flush();
+  const stored = app.stored();
+  const key = Object.keys(stored).find((item) => item !== SETTINGS_KEY);
+  assert.ok(key);
+  const cache = stored[key] as { chapters: unknown[] };
+  const previousKey = summaryCacheStorageKey(
+    { sourceKey: "youtube:Qr15lGAGKpo", videoId: "Qr15lGAGKpo" },
+    "zh-CN",
+    providerFingerprint(DEFAULT_SETTINGS),
+    8,
+  );
+  const previous = { ...cache, promptVersion: 8 };
+  const compatible = await panel({ [previousKey]: previous });
+  assert.equal(compatible.node("chapterCount").textContent, "1 章");
+  for (const [cacheKey, candidate] of [
+    [key, cache],
+    [previousKey, previous],
+  ] as const) {
+    const overLimit = await panel({
+      [cacheKey]: { ...candidate, chapters: Array.from({ length: 9 }, () => cache.chapters[0]) },
+    });
+    assert.equal(overLimit.node("statusText").textContent, "字幕已就绪");
+    assert.equal(overLimit.node("chapterCount").textContent, "等待处理");
+  }
+});

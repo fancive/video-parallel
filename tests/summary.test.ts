@@ -17,7 +17,8 @@ const segments: TranscriptSegment[] = [
 
 test("chapter prompt is platform-neutral and rejects interval splitting", () => {
   const messages = buildSummaryMessages(segments, "zh-CN", "A useful video");
-  assert.equal(SUMMARY_PROMPT_VERSION, 8);
+  assert.equal(SUMMARY_PROMPT_VERSION, 9);
+  assert.match(messages[0]?.content ?? "", /Return no more than 8 chapters/);
   assert.match(messages[0]?.content ?? "", /complete video transcript/);
   assert.doesNotMatch(messages[0]?.content ?? "", /YouTube|Bilibili/i);
   assert.match(messages[0]?.content ?? "", /Do not split at equal time intervals/);
@@ -89,5 +90,30 @@ test("makeChapterBlocks turns model boundaries into contiguous, complete time ra
       { startMs: 0, endMs: 70_000 },
       { startMs: 70_000, endMs: 130_000 },
     ],
+  );
+});
+
+test("chapter parsing accepts eight chapters and rejects overflow without dropping the ending", () => {
+  const input = Array.from({ length: 9 }, (_, index) => ({
+    id: `s${index}`,
+    startMs: index * 1000,
+    durationMs: 1000,
+    text: `Topic ${index}`,
+  }));
+  const chapters = input.map((segment) => ({
+    startSegmentId: segment.id,
+    title: segment.text,
+    summary: segment.text,
+    keyPoints: [],
+  }));
+  const response = (count: number) =>
+    JSON.stringify({
+      overview: { summary: "Overview", keyPoints: ["All topics"] },
+      chapters: chapters.slice(0, count),
+    });
+  assert.equal(parseSummaryResponse(response(8), input).chapters.length, 8);
+  assert.throws(
+    () => parseSummaryResponse(response(9), input),
+    /超过 8 章.*合并相关话题.*保留全文内容/,
   );
 });

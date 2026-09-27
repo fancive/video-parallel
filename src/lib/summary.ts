@@ -1,10 +1,10 @@
 import { TARGET_LANGUAGE_LABELS } from "./settings";
 import type { ChapterOutline, SummaryBlock, TranscriptSegment, VideoOverview } from "./types";
 
-export const SUMMARY_PROMPT_VERSION = 8;
+export const SUMMARY_PROMPT_VERSION = 9;
 export const MAX_CHAPTER_TRANSCRIPT_SEGMENTS = 2000;
 export const MAX_CHAPTER_TRANSCRIPT_CHARACTERS = 100_000;
-export const MAX_CHAPTERS = 16;
+export const MAX_CHAPTERS = 8;
 
 export interface GeneratedSummary {
   overview: VideoOverview;
@@ -111,7 +111,9 @@ export function parseSummaryResponse(
   if (chapters[0]?.startSegmentId !== segments[0]?.id) {
     throw new Error("AI 返回的章节没有覆盖视频开头。");
   }
-  return { overview, chapters: chapters.slice(0, MAX_CHAPTERS) };
+  if (chapters.length > MAX_CHAPTERS)
+    throw new Error(`AI 返回的章节超过 ${MAX_CHAPTERS} 章，请合并相关话题并保留全文内容。`);
+  return { overview, chapters };
 }
 
 function parseOverview(value: unknown): VideoOverview {
