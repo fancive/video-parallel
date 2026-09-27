@@ -77,8 +77,8 @@ it has not yet been published as a new GitHub release.
 - Zoom, fit-to-view, original-size viewing, a readable text outline, and standalone SVG export.
 - Existing summaries can open the diagram immediately without another model request. All supplied
   chapters and key points are retained; the diagram is not limited to three takeaways or 100 characters.
-- Full-video takeaways and chapter summaries remain available in collapsed details and complete
-  Markdown exports. Timestamp buttons seek playback; opening the outline does not.
+- The complete-summary section is expanded by default; takeaways and individual chapter details
+  can be expanded on demand, and remain available in complete Markdown exports. Timestamp buttons seek playback; opening the outline does not.
 - Active-chapter highlighting during playback. Automatic scrolling applies only while the full
   chapter list is open, so it does not pull the panel away from the overview.
 - Generated summaries contain at most 8 chapters; related topics are merged while preserving full-video coverage.

@@ -41,6 +41,7 @@ export function createSummaryView(
   view.append(outline);
 
   const full = text("details", "", "full-summary");
+  full.open = true;
   full.append(text("summary", `查看完整摘要与 ${chapters.length} 个章节`));
   const whole = text("details", "", "whole-summary");
   whole.append(text("summary", "全文要点"), text("p", overview.summary));

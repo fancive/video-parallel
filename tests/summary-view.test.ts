@@ -78,9 +78,10 @@ test("the panel displays the full outline and enlarges it without seeking or ope
   assert.ok(
     view
       .all()
-      .filter((node) => node.tag === "details")
+      .filter((node) => node.tag === "details" && node.className !== "full-summary")
       .every((node) => !node.open),
   );
+  assert.equal(view.all().find((node) => node.className === "full-summary")?.open, true);
   assert.equal(view.all().filter((node) => node.className === "node-button").length, 0);
   const image = view.all().find((node) => node.tag === "img") as Element & { src: string };
   assert.ok(image);
