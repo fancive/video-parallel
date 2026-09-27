@@ -14,7 +14,6 @@ await build({
     resolve(root, "src/content.ts"),
     resolve(root, "src/sidepanel.ts"),
     resolve(root, "src/options.ts"),
-    resolve(root, "src/outline.ts"),
   ],
   outdir,
   bundle: true,

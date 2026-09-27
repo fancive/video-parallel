@@ -1,4 +1,3 @@
-import { createOutlinePreview } from "./outline-preview";
 import { formatTimecode } from "./transcript";
 import type { SummaryBlock, VideoOverview } from "./types";
 
@@ -12,9 +11,7 @@ function text<K extends keyof HTMLElementTagNameMap>(tag: K, value: string, clas
 export function createSummaryView(
   overview: VideoOverview,
   chapters: SummaryBlock[],
-  openOutline: () => void,
   seek: (seconds: number) => void,
-  videoTitle: string,
 ): HTMLElement {
   const view = text("section", "", "reading-view");
   const seekButton = (chapter: SummaryBlock) => {
@@ -74,17 +71,6 @@ export function createSummaryView(
     contributions.append(list);
   }
   view.append(contributions);
-  const optionalOutline = text("details", "", "optional-outline");
-  optionalOutline.append(
-    text("summary", "章节大纲图（可选）"),
-    createOutlinePreview(videoTitle, chapters),
-  );
-  const outline = text("button", "在独立页面打开 / 导出", "outline-button");
-  outline.type = "button";
-  outline.addEventListener("click", openOutline);
-  optionalOutline.append(outline);
-  view.append(optionalOutline);
-
   const full = text("details", "", "full-summary");
   full.open = true;
   full.append(text("summary", `查看完整摘要与 ${chapters.length} 个章节`));

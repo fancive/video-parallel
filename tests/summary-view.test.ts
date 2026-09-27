@@ -64,10 +64,9 @@ const chapters: SummaryBlock[] = Array.from({ length: 16 }, (_, index) => ({
   endMs: (index + 1) * 60000,
   content: { title: `章节 ${index}`, summary: "完整细节", keyPoints: ["关键条件"] },
 }));
-test("the outline remains optional and collapsed while contribution content is visible", (t) => {
+test("contributions and chapters remain visible without a chapter outline", (t) => {
   installDocument(t);
   const seeks: number[] = [];
-  let opens = 0;
   const view = createSummaryView(
     {
       summary: "完整概览",
@@ -86,9 +85,7 @@ test("the outline remains optional and collapsed while contribution content is v
       },
     },
     chapters,
-    () => opens++,
     (time) => seeks.push(time),
-    "视频主题",
   ) as unknown as Element;
   assert.ok(
     view
@@ -97,7 +94,10 @@ test("the outline remains optional and collapsed while contribution content is v
       .every((node) => !node.open),
   );
   assert.equal(view.all().find((node) => node.className === "full-summary")?.open, true);
-  assert.equal(view.all().find((node) => node.className === "optional-outline")?.open, false);
+  assert.equal(
+    view.all().some((node) => node.className.includes("outline")),
+    false,
+  );
   const section = view.all().find((node) => node.className === "contributions");
   assert.ok(section);
   assert.ok(section.all().some((node) => node.textContent === "工程分工方法"));
@@ -107,40 +107,10 @@ test("the outline remains optional and collapsed while contribution content is v
   );
 
   assert.equal(view.all().filter((node) => node.className === "node-button").length, 0);
-  const image = view.all().find((node) => node.tag === "img") as Element & { src: string };
-  assert.ok(image);
-  const svg = decodeURIComponent(image.src.split(",")[1] ?? "");
-  assert.match(svg, /视频主题/);
-  assert.match(svg, /章节 15/);
-  assert.match(svg, /关键条件/);
-  const preview = view.all().find((node) => node.className === "outline-preview-button");
-  const dialog = view.all().find((node) => node.tag === "dialog");
-  assert.ok(preview && dialog);
-  assert.equal(dialog.open, false);
-  preview.click();
-  assert.equal(dialog.open, true);
-  assert.equal(opens, 0);
-  assert.deepEqual(seeks, []);
-  const zoom = dialog.all().find((node) => node.tag === "output");
-  assert.equal(zoom?.textContent, "100%");
-  dialog
-    .all()
-    .find((node) => node.textContent === "放大")
-    ?.click();
-  assert.equal(zoom?.textContent, "125%");
-  dialog
-    .all()
-    .find((node) => node.textContent === "关闭")
-    ?.click();
-  assert.equal(dialog.open, false);
-  assert.equal(preview.focused, true);
-
-  view
-    .all()
-    .find((node) => node.className === "outline-button")
-    ?.click();
-  assert.equal(opens, 1);
-  assert.deepEqual(seeks, []);
+  assert.equal(
+    view.all().some((node) => node.tag === "img" || node.tag === "dialog"),
+    false,
+  );
   const links = view.all().filter((node) => node.className === "chapter-seek");
   assert.equal(links.length, 16);
   links[15]?.click();

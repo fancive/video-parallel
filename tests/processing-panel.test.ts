@@ -96,9 +96,6 @@ async function panel(seed: Record<string, unknown> = {}) {
   let loads = 0;
   let copied = "";
   let cacheFails = false;
-  let outlineFails = false;
-  const outlineSessions: Record<string, unknown> = {};
-  const openedOutlines: string[] = [];
   let stored: Record<string, unknown> = {
     [SETTINGS_KEY]: { ...DEFAULT_SETTINGS, apiKey: "private-test-key" },
     ...seed,
@@ -199,9 +196,6 @@ async function panel(seed: Record<string, unknown> = {}) {
       },
       permissions: { contains: async () => true },
       tabs: {
-        create: async ({ url }: { url: string }) => {
-          openedOutlines.push(url);
-        },
         onUpdated: {
           addListener: (listener: typeof tabUpdated) => {
             tabUpdated = listener;
@@ -209,15 +203,6 @@ async function panel(seed: Record<string, unknown> = {}) {
         },
       },
       storage: {
-        session: {
-          set: async (value: Record<string, unknown>) => {
-            if (outlineFails) throw new Error("Session storage unavailable");
-            Object.assign(outlineSessions, value);
-          },
-          remove: async (key: string) => {
-            delete outlineSessions[key];
-          },
-        },
         onChanged: {
           addListener: (listener: typeof storageChanged) => {
             storageChanged = listener;
@@ -237,11 +222,6 @@ async function panel(seed: Record<string, unknown> = {}) {
   assert.equal(node("workspace").hidden, false, node("emptyMessage").textContent);
   return {
     node,
-    outlineSessions: () => outlineSessions,
-    openedOutlines: () => openedOutlines,
-    failOutline: () => {
-      outlineFails = true;
-    },
     stored: () => stored,
     providerSignal: () => providerSignal,
     copied: () => copied,
@@ -392,19 +372,16 @@ test("navigation during caption loading starts a fresh load and discards the ear
   assert.equal(app.node("statusText").textContent, "字幕已就绪");
 });
 
-test("a summary cache restores contributions and the optional outline with full Markdown", async () => {
+test("a summary cache restores contributions and chapters without an outline", async () => {
   const app = await panel();
   app.node("processButton").click();
   await flush();
   const cached = await panel(app.stored());
   const all = (node: Element): Element[] => [node, ...node.children.flatMap(all)];
-  assert.ok(all(cached.node("summaryList")).some((node) => node.className === "outline-button"));
-  const image = all(cached.node("summaryList")).find(
-    (node) => node.className === "outline-preview-button",
-  )?.children[0] as Element & { src: string };
-  assert.ok(image);
-  assert.match(decodeURIComponent(image.src), /Test video/);
-  assert.match(decodeURIComponent(image.src), /第一章/);
+  assert.equal(
+    all(cached.node("summaryList")).some((node) => node.className.includes("outline")),
+    false,
+  );
   cached.node("copyButton").click();
   await flush();
   assert.match(cached.copied(), /全文结论/);
@@ -413,7 +390,7 @@ test("a summary cache restores contributions and the optional outline with full 
   assert.match(cached.copied(), /材料未呈现明确贡献/);
 });
 
-test("old caches can open outlines without the rejected visual schema", async () => {
+test("old caches retain chapter summaries and ignore the retired visual schema", async () => {
   const { summaryCacheStorageKey } = await import("../src/lib/video-source");
   const { providerFingerprint } = await import("../src/lib/settings");
   const app = await panel();
@@ -434,7 +411,10 @@ test("old caches can open outlines without the rejected visual schema", async ()
   });
   const all = (node: Element): Element[] => [node, ...node.children.flatMap(all)];
   assert.equal(legacy.node("chapterCount").textContent, "1 章");
-  assert.ok(all(legacy.node("summaryList")).some((node) => node.className === "outline-button"));
+  assert.equal(
+    all(legacy.node("summaryList")).some((node) => node.className.includes("outline")),
+    false,
+  );
   assert.equal(
     all(legacy.node("summaryList")).filter((node) => node.className === "node-button").length,
     0,
@@ -451,38 +431,6 @@ test("old caches can open outlines without the rejected visual schema", async ()
     [previousKey]: { ...cache, version: 5, promptVersion: 7, visual: { nodes: [] } },
   });
   assert.equal(previous.node("chapterCount").textContent, "1 章");
-  const open = all(previous.node("summaryList")).find(
-    (node) => node.className === "outline-button",
-  );
-  assert.ok(open);
-  open.click();
-  await flush();
-  assert.equal(previous.openedOutlines().length, 1);
-});
-
-test("the real panel button opens a snapshot of the current video, and opening failures preserve its summary", async () => {
-  const app = await panel();
-  app.node("processButton").click();
-  await flush();
-  const all = (node: Element): Element[] => [node, ...node.children.flatMap(all)];
-  const button = all(app.node("summaryList")).find((node) => node.className === "outline-button");
-  assert.ok(button);
-  button.click();
-  await flush();
-  assert.equal(app.openedOutlines().length, 1);
-  const [snapshot] = Object.values(app.outlineSessions()) as Array<{
-    title: string;
-    chapters: unknown[];
-  }>;
-  assert.equal(snapshot?.title, "Test video");
-  assert.equal(snapshot?.chapters.length, 1);
-  assert.doesNotMatch(JSON.stringify(app.outlineSessions()), /Private transcript|private-test-key/);
-  app.failOutline();
-  button.click();
-  await flush();
-  assert.equal(app.openedOutlines().length, 1);
-  assert.match(app.node("toast").textContent, /无法打开全文架构图/);
-  assert.equal(app.node("chapterCount").textContent, "1 章");
 });
 
 test("over-limit caches are not restored while compatible prompt-eight caches remain readable", async () => {

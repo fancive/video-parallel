@@ -1,8 +1,6 @@
 import { type CompletionProgress, formatCompletionProgress } from "./lib/completion-stream";
-import { makeContentOutline } from "./lib/content-outline";
 import { readCachedContributions } from "./lib/contributions";
 import { buildSummaryMarkdown, sanitizeFilename } from "./lib/markdown";
-import { openOutlinePage } from "./lib/outline-session";
 import {
   DEFAULT_PANEL_PREFERENCES,
   normalizePanelPreferences,
@@ -386,35 +384,10 @@ function renderSummary(): void {
 
   if (currentOverview)
     summaryList.appendChild(
-      createSummaryView(
-        currentOverview,
-        currentChapters,
-        () => void openCurrentOutline(),
-        (seconds) => void seekTo(seconds),
-        currentVideo?.title ?? "视频内容",
-      ),
+      createSummaryView(currentOverview, currentChapters, (seconds) => void seekTo(seconds)),
     );
   activeChapterId = "";
   updateProcessButton();
-}
-
-async function openCurrentOutline(): Promise<void> {
-  if (!currentVideo || currentChapters.length === 0) return;
-  if (!hasExtensionRuntime) {
-    window.localStorage.setItem(
-      "video_parallel_outline_preview",
-      JSON.stringify(makeContentOutline(currentVideo.title, currentChapters)),
-    );
-    window.open("outline.html?preview=panel", "_blank", "noopener");
-    return;
-  }
-  try {
-    await openOutlinePage(currentVideo.title, currentChapters);
-  } catch (error) {
-    showToast(
-      `无法打开全文架构图：${redactError(error instanceof Error ? error.message : String(error), settings.apiKey)}`,
-    );
-  }
 }
 
 async function reloadSummaryCache(): Promise<void> {
