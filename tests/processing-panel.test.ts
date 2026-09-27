@@ -59,12 +59,20 @@ const bundled = build({
 });
 const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
 const success = {
+  visual: {
+    kind: "topics",
+    conclusion: "全片结论",
+    focus: "重点",
+    nodes: [
+      { label: "主要观点", relation: "观点", detail: "依据来自原片", chapterStartIds: ["s0"] },
+    ],
+  },
   ok: true,
   overview: { summary: "全文结论", keyPoints: ["全文重点"] },
   chapters: [{ startSegmentId: "s0", title: "第一章", summary: "章节内容", keyPoints: [] }],
 };
 
-async function panel() {
+async function panel(seed: Record<string, unknown> = {}) {
   const manifest = JSON.parse(await readFile("public/manifest.json", "utf8"));
   const elements = new Map<string, Element>();
   const html = await readFile("public/sidepanel.html", "utf8");
@@ -86,6 +94,7 @@ async function panel() {
   let cacheFails = false;
   let stored: Record<string, unknown> = {
     [SETTINGS_KEY]: { ...DEFAULT_SETTINGS, apiKey: "private-test-key" },
+    ...seed,
   };
   let video = {
     tabId: 42,
@@ -207,6 +216,7 @@ async function panel() {
   assert.equal(node("workspace").hidden, false, node("emptyMessage").textContent);
   return {
     node,
+    stored: () => stored,
     providerSignal: () => providerSignal,
     copied: () => copied,
     timers: () => {
@@ -354,4 +364,47 @@ test("navigation during caption loading starts a fresh load and discards the ear
   await flush();
   assert.equal(app.node("workspace").hidden, false);
   assert.equal(app.node("statusText").textContent, "字幕已就绪");
+});
+
+test("a generated diagram survives a cache reload and full Markdown remains available", async () => {
+  const app = await panel();
+  app.node("processButton").click();
+  await flush();
+  const cached = await panel(app.stored());
+  const all = (node: Element): Element[] => [node, ...node.children.flatMap(all)];
+  assert.ok(all(cached.node("summaryList")).some((node) => node.className === "node-button"));
+  cached.node("copyButton").click();
+  await flush();
+  assert.match(cached.copied(), /全文结论/);
+  assert.match(cached.copied(), /章节内容/);
+});
+
+test("old caches remain explicitly labeled and malformed new diagrams never load", async () => {
+  const { summaryCacheStorageKey } = await import("../src/lib/video-source");
+  const { providerFingerprint } = await import("../src/lib/settings");
+  const app = await panel();
+  app.node("processButton").click();
+  await flush();
+  const stored = app.stored();
+  const key = Object.keys(stored).find((item) => item !== SETTINGS_KEY);
+  assert.ok(key);
+  const cache = stored[key] as Record<string, unknown>;
+  const legacyKey = summaryCacheStorageKey(
+    { sourceKey: "youtube:Qr15lGAGKpo", videoId: "Qr15lGAGKpo" },
+    "zh-CN",
+    providerFingerprint(DEFAULT_SETTINGS),
+    6,
+  );
+  const legacy = await panel({
+    [legacyKey]: { ...cache, version: 4, promptVersion: 6, visual: undefined },
+  });
+  const all = (node: Element): Element[] => [node, ...node.children.flatMap(all)];
+  assert.equal(legacy.node("chapterCount").textContent, "1 章");
+  assert.ok(all(legacy.node("summaryList")).some((node) => /旧版摘要/.test(node.textContent)));
+  assert.equal(
+    all(legacy.node("summaryList")).filter((node) => node.className === "node-button").length,
+    0,
+  );
+  const invalid = await panel({ [key]: { ...cache, visual: { ...success.visual, nodes: [] } } });
+  assert.equal(invalid.node("chapterCount").textContent, "等待处理");
 });

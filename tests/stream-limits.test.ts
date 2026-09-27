@@ -8,6 +8,14 @@ import { generateVideoSummary } from "../src/lib/summary-service";
 const twoMiB = 2 * 1024 * 1024;
 const encoder = new TextEncoder();
 const summary = {
+  visual: {
+    kind: "topics",
+    conclusion: "全片结论",
+    focus: "重点",
+    nodes: [
+      { label: "主要观点", relation: "观点", detail: "依据来自原片", chapterStartIds: ["s0"] },
+    ],
+  },
   overview: { summary: "概要正文", keyPoints: ["重点"] },
   chapters: [{ startSegmentId: "s0", title: "开场", summary: "章节正文", keyPoints: [] }],
 };
@@ -70,6 +78,7 @@ for (const chunkSize of [65536, Number.MAX_SAFE_INTEGER]) {
       },
     });
     assert.deepEqual(result.overview, summary.overview);
+    assert.deepEqual(result.visual, summary.visual);
     assert.equal(latest?.reasoningCharacters, 26686);
     assert.doesNotMatch(JSON.stringify(result), /reasoning_content|rrrr/);
   });

@@ -20,6 +20,19 @@ const response = (input: TranscriptSegment[], usage = true) =>
         {
           message: {
             content: JSON.stringify({
+              visual: {
+                kind: "topics",
+                conclusion: "全片结论",
+                focus: "重点",
+                nodes: [
+                  {
+                    label: "主要观点",
+                    relation: "观点",
+                    detail: "依据来自原片",
+                    chapterStartIds: [input[0]?.id],
+                  },
+                ],
+              },
               overview: { summary: "概要", keyPoints: ["重要限制"] },
               chapters: input.map((segment) => ({
                 startSegmentId: segment.id,
@@ -52,9 +65,11 @@ test("583 segments / 105646 characters reach bounded requests without losing cap
     assert.ok(batch.reduce((sum, segment) => sum + segment.text.length, 0) <= 100000);
     if (requests.length === 3) {
       assert.match(JSON.parse(String(init.body)).messages[0].content, /ALL portions/);
+      assert.match(JSON.parse(String(init.body)).messages[0].content, /Also return visual/);
       assert.ok(batch.every((segment) => segment.text.includes("重要限制")));
       return response(batch);
     }
+    assert.doesNotMatch(JSON.parse(String(init.body)).messages[0].content, /Also return visual/);
     return response([batch[0] as TranscriptSegment]);
   });
   const result = await generateVideoSummary(DEFAULT_SETTINGS, input, "4DhcSPkEbwI size fixture", {

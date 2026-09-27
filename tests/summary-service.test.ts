@@ -5,6 +5,14 @@ import { DEFAULT_SETTINGS } from "../src/lib/settings";
 import { generateVideoSummary } from "../src/lib/summary-service";
 
 const summary = {
+  visual: {
+    kind: "topics",
+    conclusion: "全片结论",
+    focus: "重点",
+    nodes: [
+      { label: "主要观点", relation: "观点", detail: "依据来自原片", chapterStartIds: ["s0"] },
+    ],
+  },
   overview: { summary: "完整概要", keyPoints: ["全片重点"] },
   chapters: [{ startSegmentId: "s0", title: "第一章", summary: "章节概要", keyPoints: [] }],
 };
@@ -165,4 +173,23 @@ test("other providers retain their non-streaming request compatibility", async (
     "Fixture",
   );
   assert.deepEqual(result.overview, summary.overview);
+});
+
+test("invalid visual output retries with validation feedback without accepting a truncated label", async (t) => {
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async (_url: unknown, init: RequestInit) => {
+    calls++;
+    const body = JSON.parse(String(init.body));
+    if (calls === 2) assert.match(body.messages.at(-1).content, /failed validation/);
+    const value =
+      calls === 1
+        ? { ...summary, visual: { ...summary.visual, conclusion: "字".repeat(200) } }
+        : summary;
+    return new Response(
+      JSON.stringify({ choices: [{ message: { content: JSON.stringify(value) } }] }),
+    );
+  });
+  const result = await generateVideoSummary(DEFAULT_SETTINGS, segments, "Fixture");
+  assert.equal(calls, 2);
+  assert.deepEqual(result.visual, summary.visual);
 });

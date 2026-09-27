@@ -4,7 +4,7 @@
 
 ### Watch the video. Read the structure.
 
-Turn YouTube and Bilibili captions into a full-video overview and semantic AI chapter summaries that stay in sync with playback.
+Turn YouTube and Bilibili captions into one conclusion and a compact interactive diagram, with full chapter summaries a click away.
 
 [![Latest release](https://img.shields.io/github/v/release/fancive/video-parallel?display_name=tag&sort=semver&style=flat-square&color=f05b43)](https://github.com/fancive/video-parallel/releases/latest) [![CI](https://github.com/fancive/video-parallel/actions/workflows/ci.yml/badge.svg)](https://github.com/fancive/video-parallel/actions/workflows/ci.yml) [![Chrome 116+](https://img.shields.io/badge/Chrome-116%2B-2f59ff?style=flat-square&logo=googlechrome&logoColor=white)](#requirements) [![Manifest V3](https://img.shields.io/badge/Manifest-V3-15212b?style=flat-square)](public/manifest.json) [![Local-first](https://img.shields.io/badge/data-local--first-008f7c?style=flat-square)](PRIVACY.md) [![MIT License](https://img.shields.io/github/license/fancive/video-parallel?style=flat-square)](LICENSE)
 
@@ -12,17 +12,11 @@ Turn YouTube and Bilibili captions into a full-video overview and semantic AI ch
 
 </div>
 
-<p align="center">
-  <img src="docs/assets/side-panel.jpg" width="720" alt="video-parallel Side Panel showing full-video takeaways followed by semantic chapter summaries">
-</p>
-
-<p align="center"><sub>The real Side Panel UI, rendered with the bundled preview data.</sub></p>
-
 ## Why video-parallel?
 
-| Overview + semantic chapters | Playback-aware reading | Bring your own provider |
+| Conclusion + visual structure | Details when you need them | Bring your own provider |
 | --- | --- | --- |
-| Start with the video's main conclusions, then follow topic, argument, and narrative transitions instead of fixed intervals. | The active chapter follows playback, and every timestamp is a seek target. | Use OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter, Ollama, or another supported endpoint without a developer-operated backend. |
+| Start with one conclusion and up to three nodes: arguments, steps, comparisons, or independent ideas. | Open a node for its explanation and related chapters. Playback follows only when the full chapter list is open. | Use OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter, Ollama, or another supported endpoint without a developer-operated backend. |
 
 The extension reads caption tracks already available on YouTube and Bilibili. It does not upload
 audio or depend on a transcript proxy. The complete transcript is sent to your configured provider
@@ -68,9 +62,19 @@ For a local Ollama server, use `http://localhost:11434/v1` and leave the API Key
 
 ## What you get
 
-- A full-video overview followed by a title, concise summary, key points, and clickable time range
-  for every semantic chapter.
-- Automatic active-chapter highlighting and scrolling during playback.
+The visual-first reader described below is available in the source build on `main`;
+it has not yet been published as a new GitHub release.
+
+- A compact visual summary: one conclusion plus up to three interactive nodes. Chinese labels aim
+  for about 100 characters in total (140 maximum); other languages use a bounded reading budget.
+- Content-driven argument trees, step flows, comparisons on a shared dimension, or independent
+  topic cards. Node explanations link to one or more original chapter starts.
+- Full-video takeaways and all chapter summaries remain available in collapsed details and in
+  complete Markdown exports. Expanding a node or chapter does not seek; timestamp buttons do.
+- Active-chapter highlighting during playback. Automatic scrolling applies only while the full
+  chapter list is open, so reading the diagram is not interrupted.
+- Existing version-6 summary caches remain readable as labeled legacy content; process the video
+  again to generate a diagram. New caches validate the diagram and its chapter references.
 - Small, standard, and large Side Panel reading sizes independent of the video page zoom.
 - Full-video takeaways and chapter summaries consistently written in the selected output language:
   Simplified Chinese, Traditional Chinese, Japanese, Korean, English, French, German, or Spanish.
@@ -85,9 +89,9 @@ YouTube or Bilibili caption track
         ↓
 Complete transcript + stable segment IDs + timestamps
         ↓
-Target-language conversion + semantic chaptering + summarization
+Target-language conversion + semantic chaptering + visual synthesis
         ↓
-Seekable chapter cards + local cache + Markdown
+Conclusion + interactive diagram → on-demand chapters + local cache + Markdown
 ```
 
 The extension accepts only model-selected chapter boundaries that correspond to real caption
@@ -96,11 +100,11 @@ segments. It then produces continuous, non-overlapping chapters covering the com
 > [!NOTE]
 > Long transcripts are automatically processed in batches of up to 2,000 caption segments
 > or 100,000 characters, then synthesized into a whole-video overview and at most 16
-> chapters with original timestamps. No captions are truncated. The panel shows batch
-> progress; token usage includes all requests when every response supplies usage.
+> chapters with original timestamps. The diagram is generated only with the final whole-video
+> result; intermediate batches preserve detailed evidence and caveats. No captions are truncated.
+> The panel shows batch progress; token usage includes all requests when every response supplies usage.
 > The existing 10-minute total deadline applies to the entire operation, including retries
 > and synthesis. Long videos require additional model requests and may reach that deadline.
-> Videos above either limit fail explicitly instead of silently falling back to mechanical chunking.
 
 ## Providers and models
 
