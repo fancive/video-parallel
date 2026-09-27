@@ -159,6 +159,10 @@ private, confidential, or regulated material.
 
 ## Troubleshooting processing failures
 
+After updating or reloading the extension, refresh any video pages that were already open.
+Their previous content scripts can report `Extension context invalidated`. The page button now
+handles this state and offers an explicit refresh action; ordinary open failures remain retryable.
+
 Processing errors stay visible in the Side Panel until the next attempt or video load. The panel
 shows the failed stage, the original error and a suggested next step. **Copy error details** includes
 the video URL, model, subtitle size, elapsed time, extension version and HTTP status when available;

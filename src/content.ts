@@ -81,8 +81,27 @@ function createButton(platform: VideoPlatform): HTMLButtonElement {
   const label = document.createElement("span");
   label.textContent = "概要";
   button.append(mark, label);
+  let needsRefresh = false;
   button.addEventListener("click", () => {
-    void chrome.runtime.sendMessage({ type: "OPEN_PANEL" });
+    if (needsRefresh) {
+      location.reload();
+      return;
+    }
+    void sendPanelMessage("OPEN_PANEL").then((response) => {
+      if (response.ok) {
+        label.textContent = "概要";
+        button.setAttribute("aria-label", "在 video-parallel 中查看章节概要");
+        button.title = "";
+        return;
+      }
+      needsRefresh = response.invalidated === true;
+      const message = needsRefresh ? "扩展已更新，点击刷新页面" : "打开失败，点击重试";
+      label.textContent = message;
+      button.setAttribute("aria-label", message);
+      button.title = needsRefresh
+        ? "刷新当前视频页后即可重新连接扩展。"
+        : (response.error ?? message);
+    });
   });
   return button;
 }
@@ -99,6 +118,26 @@ function findToolbar(platform: VideoPlatform): Element | null {
   return candidates.map((selector) => document.querySelector(selector)).find(Boolean) ?? null;
 }
 
+interface PanelReply {
+  ok: boolean;
+  error?: string;
+  invalidated?: boolean;
+}
+
+async function sendPanelMessage(type: "OPEN_PANEL" | "PREPARE_PANEL"): Promise<PanelReply> {
+  try {
+    // Invoke immediately so OPEN_PANEL keeps the click's user activation.
+    return (await chrome.runtime.sendMessage({ type })) ?? { ok: false };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      ok: false,
+      error: message,
+      invalidated: /extension context invalidated/i.test(message),
+    };
+  }
+}
+
 async function preparePanel(): Promise<boolean> {
   const page = detectVideoPage(location.href);
   if (!page) return false;
@@ -106,8 +145,7 @@ async function preparePanel(): Promise<boolean> {
   if (preparedSourceKey === sourceKey) return true;
   if (preparation) return preparation;
 
-  preparation = chrome.runtime
-    .sendMessage({ type: "PREPARE_PANEL" })
+  preparation = sendPanelMessage("PREPARE_PANEL")
     .then((response: { ok?: boolean }) => {
       if (response?.ok && detectVideoPage(location.href)?.sourceKey === sourceKey) {
         preparedSourceKey = sourceKey;
