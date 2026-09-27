@@ -83,7 +83,21 @@ export interface SummaryContent {
   keyPoints: string[];
 }
 
+export interface VideoContribution {
+  title: string;
+  problem: string;
+  value: string;
+  boundary: string;
+  evidence: Array<{ segmentId: string; startMs: number }>;
+}
+
+export interface VideoContributions {
+  items: VideoContribution[];
+  emptyReason: string;
+}
+
 export interface VideoOverview {
+  contributions?: VideoContributions;
   summary: string;
   keyPoints: string[];
 }
@@ -105,7 +119,7 @@ export interface TokenUsage {
 }
 
 export interface SummaryCache {
-  version: 4 | 5 | 6;
+  version: 4 | 5 | 6 | 7;
   promptVersion: number;
   sourceKey: string;
   targetLanguage: string;

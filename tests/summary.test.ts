@@ -17,7 +17,7 @@ const segments: TranscriptSegment[] = [
 
 test("chapter prompt is platform-neutral and rejects interval splitting", () => {
   const messages = buildSummaryMessages(segments, "zh-CN", "A useful video");
-  assert.equal(SUMMARY_PROMPT_VERSION, 9);
+  assert.equal(SUMMARY_PROMPT_VERSION, 10);
   assert.match(messages[0]?.content ?? "", /Return no more than 8 chapters/);
   assert.match(messages[0]?.content ?? "", /complete video transcript/);
   assert.doesNotMatch(messages[0]?.content ?? "", /YouTube|Bilibili/i);
@@ -43,7 +43,7 @@ test("summary prompt repeats the selected language in its native wording", () =>
 test("parseSummaryResponse accepts a full overview and restores chapter chronology", () => {
   const result = parseSummaryResponse(
     `Result:\n\`\`\`json
-    {"overview":{"summary":"全文结论。","keyPoints":["总重点一","总重点二"]},"chapters":[
+    {"overview":{"summary":"全文结论。","keyPoints":["总重点一","总重点二"],"contributions":{"items":[],"emptyReason":"暂无明确贡献"}},"chapters":[
       {"startSegmentId":"s2","title":"第二章","summary":"新论点。","keyPoints":["证据二"]},
       {"startSegmentId":"s0","title":"第一章","summary":"开场论点。","keyPoints":["证据一"]},
     ],}
@@ -108,7 +108,11 @@ test("chapter parsing accepts eight chapters and rejects overflow without droppi
   }));
   const response = (count: number) =>
     JSON.stringify({
-      overview: { summary: "Overview", keyPoints: ["All topics"] },
+      overview: {
+        summary: "Overview",
+        keyPoints: ["All topics"],
+        contributions: { items: [], emptyReason: "None supported" },
+      },
       chapters: chapters.slice(0, count),
     });
   assert.equal(parseSummaryResponse(response(8), input).chapters.length, 8);

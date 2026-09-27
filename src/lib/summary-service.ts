@@ -53,7 +53,7 @@ export async function generateVideoSummary(
           "\nThis is one chronological portion of a longer video. Cover all supplied captions, but describe only this portion; do not infer what happens in missing portions. Preserve evidence and caveats for later whole-video synthesis.";
       if (synthesis && messages[0])
         messages[0].content +=
-          "\nThe input contains chronological summaries of transcript portions, not verbatim captions. Synthesize a whole-video overview and coherent chapters from ALL portions. Merge related topics across portion boundaries; do not treat a processing boundary as a topic change. Preserve the supplied start ids and supported caveats.";
+          "\nThe input contains chronological summaries of transcript portions plus selected verbatim evidence. Synthesize a whole-video overview and coherent chapters from ALL portions. Merge related topics across portion boundaries; do not treat a processing boundary as a topic change. Preserve the supplied start ids and supported caveats. Synthesize contributions across ALL portions rather than copying the first portion. Cite only ids present in this input.";
       for (let attempt = 0; attempt < 2; attempt++) {
         controller.signal.throwIfAborted();
         const completion = await requestCompletion(
@@ -94,12 +94,19 @@ export async function generateVideoSummary(
         return { ...summary, ...(completeUsage && usage ? { usage } : {}) };
       }
       const reduced: TranscriptSegment[] = [];
+      const contributionEvidence: TranscriptSegment[] = [];
       for (const [index, batch] of batches.entries()) {
         const result = await summarize(
           batch,
           `第 ${round + 1} 轮 · 分批处理 ${index + 1}/${batches.length}`,
           round > 0,
         );
+        for (const item of result.overview.contributions?.items ?? []) {
+          for (const evidence of item.evidence) {
+            const original = originals.get(evidence.segmentId);
+            if (original) contributionEvidence.push(original);
+          }
+        }
         for (const [chapterIndex, chapter] of result.chapters.entries()) {
           const original = originals.get(chapter.startSegmentId);
           if (!original) throw new ProcessingError("AI 返回的章节定位无效。", "response");
@@ -114,6 +121,22 @@ export async function generateVideoSummary(
           });
         }
       }
+      // Keep exact source segments cited by portion contributions through later synthesis.
+      const unique = new Map(reduced.map((segment) => [segment.id, segment]));
+      for (const segment of new Map(contributionEvidence.map((item) => [item.id, item])).values()) {
+        const existing = unique.get(segment.id);
+        unique.set(
+          segment.id,
+          existing
+            ? { ...existing, text: `${existing.text}\nVerbatim evidence: ${segment.text}` }
+            : segment,
+        );
+      }
+      reduced.splice(
+        0,
+        reduced.length,
+        ...[...unique.values()].sort((a, b) => a.startMs - b.startMs),
+      );
       // Stop pathological expanding model output instead of looping or dropping evidence.
       const size = (items: TranscriptSegment[]) =>
         items.reduce((sum, item) => sum + item.text.length + 1, 0);

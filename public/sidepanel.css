@@ -521,3 +521,17 @@ main { min-height: calc(100vh - 48px); }
 .outline-toolbar output { min-width: 40px; text-align: center; font-size: 12px; }
 .outline-zoom-canvas { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
 .outline-zoom-canvas img { display: block; max-width: none; }
+
+
+.contributions { margin: 8px 0 20px; }
+.contributions h2 { margin: 0 0 14px; font-size: 16px; }
+.contribution-list { margin: 0; padding-left: 22px; }
+.contribution-item { padding: 0 0 18px 5px; }
+.contribution-item h3 { margin: 0 0 8px; font-size: var(--summary-title-size); line-height: 1.45; }
+.contribution-item p { margin: 6px 0; font-size: var(--summary-copy-size); line-height: 1.65; }
+.contribution-problem, .contribution-empty { color: var(--muted); }
+.contribution-boundary { margin-top: 8px; font-size: var(--summary-copy-size); }
+.contribution-sources { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.contribution-source { border: 1px solid var(--line); border-radius: 4px; padding: 5px 9px; background: var(--paper); cursor: pointer; font-size: 12px; }
+.optional-outline { margin: 8px 0 18px; color: var(--muted); }
+.optional-outline > summary { cursor: pointer; font-size: 13px; }

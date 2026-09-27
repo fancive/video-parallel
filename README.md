@@ -67,23 +67,24 @@ For a local Ollama server, use `http://localhost:11434/v1` and leave the API Key
 
 ## What you get
 
-The visual-first reader described below is available in the source build on `main`;
+The contribution-first reader described below is available in the source build on `main`;
 it has not yet been published as a new GitHub release.
 
-- A concise overview followed by the complete outline image in the Side Panel. Click the image
-  to zoom and scroll in place; optionally open a separate tab for a larger workspace and SVG export.
-- One complete, connected mind map: the video topic at the center, all chapters around it, and
-  each chapter's key points as subtopics. Connections express hierarchy, not causality.
-- Zoom, fit-to-view, original-size viewing, a readable text outline, and standalone SVG export.
-- Existing summaries can open the diagram immediately without another model request. All supplied
-  chapters and key points are retained; the diagram is not limited to three takeaways or 100 characters.
-- The complete-summary section is expanded by default; takeaways and individual chapter details
-  can be expanded on demand, and remain available in complete Markdown exports. Timestamp buttons seek playback; opening the outline does not.
-- Active-chapter highlighting during playback. Automatic scrolling applies only while the full
-  chapter list is open, so it does not pull the panel away from the overview.
-- Generated summaries contain at most 8 chapters; related topics are merged while preserving full-video coverage.
-- Prompt-version 6, 7, and 8 caches with at most 8 chapters remain readable. Larger cached summaries require reprocessing. The viewer receives a snapshot of the selected
-  video's chapter content, so a later video switch does not change an already-open diagram.
+- A concise overview followed by **Main contributions**: 1–3 supported perspectives, methods,
+  evidence, syntheses, or practical insights selected across the complete video, not per chapter.
+- Each contribution states what it offers, the problem addressed, and its value. Supported limits
+  can be expanded, and source-time buttons let you check the original video.
+- If there is no clear contribution, the result explains why instead of padding the list.
+  The prompt prohibits unsupported first-ever novelty claims and invented comparisons.
+- The complete-summary section stays expanded by default; takeaways and individual chapter details
+  can be expanded on demand. Generated summaries contain at most 8 chapters.
+- The chapter outline remains in a collapsed optional section, with zoom and SVG export.
+  Its hierarchy comes from the chapters; it is not presented as additional analysis.
+- Prompt-version 6–9 caches with at most 8 chapters remain readable. They show a reprocessing hint
+  for contributions rather than relabeling old takeaways. New contributions and evidence are cached.
+- Long videos preserve selected source evidence while synthesizing contributions across portions.
+- Active-chapter highlighting and optional playback following remain available. The initial
+  playback position does not scroll past the contribution section on load.
 - Small, standard, and large Side Panel reading sizes independent of the video page zoom.
 - Full-video takeaways and chapter summaries consistently written in the selected output language:
   Simplified Chinese, Traditional Chinese, Japanese, Korean, English, French, German, or Spanish.
@@ -100,7 +101,8 @@ Complete transcript + stable segment IDs + timestamps
         ↓
 Target-language conversion + semantic chaptering + summarization
         ↓
-Concise overview + complete chapters → standalone outline SVG + local cache + Markdown
+Overview + supported contributions + complete chapters → local cache + Markdown
+        └ optional chapter-outline SVG
 ```
 
 The extension accepts only model-selected chapter boundaries that correspond to real caption

@@ -1,5 +1,6 @@
 import { type CompletionProgress, formatCompletionProgress } from "./lib/completion-stream";
 import { makeContentOutline } from "./lib/content-outline";
+import { readCachedContributions } from "./lib/contributions";
 import { buildSummaryMarkdown, sanitizeFilename } from "./lib/markdown";
 import { openOutlinePage } from "./lib/outline-session";
 import {
@@ -301,8 +302,8 @@ async function processVideo(): Promise<void> {
     stage = "cache";
     await saveSummaryCache();
     if (!isCurrentRun()) return;
-    setStatus(`已生成 ${chapters.length} 个章节，可查看全文架构图`, false);
-    showToast("完整摘要已保存，可直接打开全文架构图");
+    setStatus(`已生成主要贡献与 ${chapters.length} 个章节`, false);
+    showToast("主要贡献与章节摘要已保存");
   } catch (error) {
     if (!isCurrentRun()) return;
     if (controller.signal.aborted) {
@@ -376,7 +377,7 @@ function renderSummary(): void {
     const title = document.createElement("strong");
     title.textContent = "先看懂重点，再展开细节";
     const copy = document.createElement("span");
-    copy.textContent = "开始处理，生成简短结论、完整章节和独立的全文架构图。";
+    copy.textContent = "开始处理，提炼主要贡献、简短结论和完整章节。";
     empty.append(title, copy);
     summaryList.appendChild(empty);
     updateProcessButton();
@@ -433,10 +434,17 @@ async function restoreSummaryCache(): Promise<void> {
   const generation = loadingGeneration;
   const sourceFingerprint = summarySourceFingerprint();
   const key = summaryCacheKey();
+  const priorKey = summaryCacheKey(9);
   const outlineKey = summaryCacheKey(8);
   const previousKey = summaryCacheKey(7);
   const legacyKey = summaryCacheKey(6);
-  const stored = await chrome.storage.local.get([key, outlineKey, previousKey, legacyKey]);
+  const stored = await chrome.storage.local.get([
+    key,
+    priorKey,
+    outlineKey,
+    previousKey,
+    legacyKey,
+  ]);
   if (
     currentVideo !== video ||
     generation !== loadingGeneration ||
@@ -444,13 +452,18 @@ async function restoreSummaryCache(): Promise<void> {
     settings.targetLanguage !== language
   )
     return;
-  const candidate = stored[key] ?? stored[outlineKey] ?? stored[previousKey] ?? stored[legacyKey];
+  const candidate =
+    stored[key] ??
+    stored[priorKey] ??
+    stored[outlineKey] ??
+    stored[previousKey] ??
+    stored[legacyKey];
   const cache = candidate as SummaryCache | undefined;
   if (
     !cache ||
     !(
-      (cache.version === 6 &&
-        (cache.promptVersion === SUMMARY_PROMPT_VERSION || cache.promptVersion === 8)) ||
+      (cache.version === 7 && cache.promptVersion === SUMMARY_PROMPT_VERSION) ||
+      (cache.version === 6 && (cache.promptVersion === 9 || cache.promptVersion === 8)) ||
       (cache.version === 5 && cache.promptVersion === 7) ||
       (cache.version === 4 && cache.promptVersion === 6)
     ) ||
@@ -471,7 +484,13 @@ async function restoreSummaryCache(): Promise<void> {
     outline.push({ startSegmentId: segment.id, ...cached.content });
   }
   if (outline[0]?.startSegmentId !== currentVideo.segments[0]?.id) return;
-  currentOverview = cache.overview;
+  currentOverview = {
+    ...cache.overview,
+    contributions:
+      cache.version === 7
+        ? readCachedContributions(cache.overview.contributions, currentVideo.segments)
+        : undefined,
+  };
   currentChapters = makeChapterBlocks(currentVideo.segments, outline);
   currentTokenUsage = isTokenUsage(cache.usage) ? cache.usage : null;
 }
@@ -479,7 +498,7 @@ async function restoreSummaryCache(): Promise<void> {
 async function saveSummaryCache(): Promise<void> {
   if (!currentVideo || !currentOverview) return;
   const cache: SummaryCache = {
-    version: 6,
+    version: 7,
     promptVersion: SUMMARY_PROMPT_VERSION,
     sourceKey: currentVideo.sourceKey,
     targetLanguage: settings.targetLanguage,
@@ -564,8 +583,8 @@ async function syncPlayback(): Promise<void> {
     `[data-chapter-id="${CSS.escape(chapter.id)}"]`,
   );
   card?.classList.add("is-active");
+  followVisibleChapter(card ?? null, settings.autoFollow && Boolean(activeChapterId));
   activeChapterId = chapter.id;
-  followVisibleChapter(card ?? null, settings.autoFollow);
 }
 
 function activeChapterAt(timeMs: number): SummaryBlock | null {
@@ -771,6 +790,21 @@ function renderLocalPreview(): void {
   currentOverview = {
     summary:
       "这段视频主张，智能体的能力上限不仅由模型决定，更取决于能否持续获得新鲜、可信且权限清晰的上下文。把上下文获取与治理独立成基础服务，可以让产品团队专注任务逻辑，同时保留来源和安全边界。",
+    contributions: {
+      items: [
+        {
+          title: "把上下文供给视为独立的工程问题",
+          problem: "应用团队反复处理资料获取与更新，任务逻辑和信息维护混在一起。",
+          value: "提出独立上下文层，集中处理信息获取、更新、来源和权限，让应用团队专注任务。",
+          boundary: "这是示例中的工程分工建议，不代表已证明适用于所有任务。",
+          evidence: [
+            { segmentId: "s2", startMs: 153000 },
+            { segmentId: "s3", startMs: 234000 },
+          ],
+        },
+      ],
+      emptyReason: "",
+    },
     keyPoints: [
       "实时上下文是智能体可靠行动的前提，而不是附加能力",
       "单次检索无法覆盖持续变化的任务状态",

@@ -1,7 +1,8 @@
+import { parseContributions } from "./contributions";
 import { TARGET_LANGUAGE_LABELS } from "./settings";
 import type { ChapterOutline, SummaryBlock, TranscriptSegment, VideoOverview } from "./types";
 
-export const SUMMARY_PROMPT_VERSION = 9;
+export const SUMMARY_PROMPT_VERSION = 10;
 export const MAX_CHAPTER_TRANSCRIPT_SEGMENTS = 2000;
 export const MAX_CHAPTER_TRANSCRIPT_CHARACTERS = 100_000;
 export const MAX_CHAPTERS = 8;
@@ -37,7 +38,11 @@ export function buildSummaryMessages(
         "Before the chapters, write ONE concise sentence stating the main conclusion or theme of the complete video and 3-5 key takeaways that capture its main claims, conclusions, and important caveats.",
         "For each chapter, write a specific title, a concise 2-3 sentence summary, and 2-4 evidence-based key points.",
         "Use only claims supported by the transcript. Preserve names, numbers, caveats, and uncertainty.",
-        'Return only JSON with this shape: {"overview":{"summary":"…","keyPoints":["…"]},"chapters":[{"startSegmentId":"unchanged-id","title":"…","summary":"…","keyPoints":["…"]}]}. Property names and startSegmentId stay unchanged; every ellipsis must be replaced with text in the required output language.',
+        "Extract the video's MAIN CONTRIBUTIONS across the complete content, not one item per chapter and not chapter headings or takeaways reworded. Return 1-3 substantive contributions, using fewer when warranted; never pad the list.",
+        "A contribution can be an explanatory perspective, useful method, supported evidence, synthesis, or practical experience. For each, title states what it offers, problem states the specific difficulty addressed, value explains why it is useful, and boundary states supported limits (empty string if no limit is given). Use short, concrete sentences in the required output language.",
+        "Do not claim first-ever novelty, breakthroughs, superiority, or compare with an invented baseline. Distinguish this video's value from verified originality. Do not add external knowledge or unsupported personal advice.",
+        "Each contribution must cite 1-3 distinct evidenceSegmentIds from the supplied transcript supporting it. If no clear contribution is supported, return items:[] and a concrete emptyReason; otherwise emptyReason is an empty string.",
+        'Return only JSON with this shape: {"overview":{"summary":"…","keyPoints":["…"],"contributions":{"items":[{"title":"…","problem":"…","value":"…","boundary":"…","evidenceSegmentIds":["unchanged-id"]}],"emptyReason":""}},"chapters":[{"startSegmentId":"unchanged-id","title":"…","summary":"…","keyPoints":["…"]}]}. Property names and startSegmentId stay unchanged; every ellipsis must be replaced with text in the required output language.',
       ].join("\n"),
     },
     {
@@ -113,6 +118,8 @@ export function parseSummaryResponse(
   }
   if (chapters.length > MAX_CHAPTERS)
     throw new Error(`AI 返回的章节超过 ${MAX_CHAPTERS} 章，请合并相关话题并保留全文内容。`);
+  const rawOverview = parsed.overview as Record<string, unknown>;
+  overview.contributions = parseContributions(rawOverview.contributions, segments);
   return { overview, chapters };
 }
 

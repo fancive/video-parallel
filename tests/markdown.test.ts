@@ -39,3 +39,34 @@ test("buildSummaryMarkdown exports chapter summaries without sentence translatio
 test("sanitizeFilename removes reserved filesystem characters", () => {
   assert.equal(sanitizeFilename('A/B: "video"?'), "A B video");
 });
+
+test("contribution exports retain problem, value, boundary and source time", () => {
+  const output = buildSummaryMarkdown(
+    {
+      title: "Video",
+      channel: "Channel",
+      url: "https://example.com",
+      sourceLanguage: "en",
+      summaryLanguage: "zh-CN",
+    },
+    {
+      summary: "Overview",
+      keyPoints: [],
+      contributions: {
+        items: [
+          {
+            title: "方法贡献",
+            problem: "重复工作",
+            value: "职责分离",
+            boundary: "仅适用于示例",
+            evidence: [{ segmentId: "s1", startMs: 42000 }],
+          },
+        ],
+        emptyReason: "",
+      },
+    },
+    [],
+  );
+  for (const value of ["方法贡献", "重复工作", "职责分离", "仅适用于示例", "原文依据：00:42"])
+    assert.ok(output.includes(value));
+});

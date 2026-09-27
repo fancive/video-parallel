@@ -30,7 +30,27 @@ export function buildSummaryMarkdown(
   ];
 
   for (const point of overview.keyPoints) lines.push(`- ${point}`);
-  lines.push("", "## 章节概要", "");
+  lines.push("", "## 主要贡献", "");
+  if (!overview.contributions) lines.push("历史摘要尚未提炼主要贡献，请重新处理。", "");
+  else if (overview.contributions.items.length === 0)
+    lines.push(overview.contributions.emptyReason, "");
+  else
+    for (const item of overview.contributions.items) {
+      lines.push(
+        `### ${item.title}`,
+        "",
+        `解决的问题：${item.problem}`,
+        "",
+        `价值：${item.value}`,
+        "",
+      );
+      if (item.boundary) lines.push(`适用边界：${item.boundary}`, "");
+      lines.push(
+        `原文依据：${item.evidence.map((source) => formatTimecode(source.startMs)).join("、")}`,
+        "",
+      );
+    }
+  lines.push("## 章节概要", "");
 
   for (const chapter of chapters) {
     lines.push(

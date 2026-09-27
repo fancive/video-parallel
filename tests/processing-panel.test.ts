@@ -68,7 +68,11 @@ const success = {
     ],
   },
   ok: true,
-  overview: { summary: "全文结论", keyPoints: ["全文重点"] },
+  overview: {
+    summary: "全文结论",
+    keyPoints: ["全文重点"],
+    contributions: { items: [], emptyReason: "材料未呈现明确贡献" },
+  },
   chapters: [{ startSegmentId: "s0", title: "第一章", summary: "章节内容", keyPoints: [] }],
 };
 
@@ -388,7 +392,7 @@ test("navigation during caption loading starts a fresh load and discards the ear
   assert.equal(app.node("statusText").textContent, "字幕已就绪");
 });
 
-test("a summary cache restores the independent outline entry and full Markdown", async () => {
+test("a summary cache restores contributions and the optional outline with full Markdown", async () => {
   const app = await panel();
   app.node("processButton").click();
   await flush();
@@ -405,6 +409,8 @@ test("a summary cache restores the independent outline entry and full Markdown",
   await flush();
   assert.match(cached.copied(), /全文结论/);
   assert.match(cached.copied(), /章节内容/);
+  assert.match(cached.copied(), /主要贡献/);
+  assert.match(cached.copied(), /材料未呈现明确贡献/);
 });
 
 test("old caches can open outlines without the rejected visual schema", async () => {
@@ -495,7 +501,7 @@ test("over-limit caches are not restored while compatible prompt-eight caches re
     providerFingerprint(DEFAULT_SETTINGS),
     8,
   );
-  const previous = { ...cache, promptVersion: 8 };
+  const previous = { ...cache, version: 6, promptVersion: 8 };
   const compatible = await panel({ [previousKey]: previous });
   assert.equal(compatible.node("chapterCount").textContent, "1 章");
   for (const [cacheKey, candidate] of [
@@ -507,5 +513,37 @@ test("over-limit caches are not restored while compatible prompt-eight caches re
     });
     assert.equal(overLimit.node("statusText").textContent, "字幕已就绪");
     assert.equal(overLimit.node("chapterCount").textContent, "等待处理");
+  }
+});
+
+test("legacy and malformed contribution caches preserve chapters without inventing contribution content", async () => {
+  const { summaryCacheStorageKey } = await import("../src/lib/video-source");
+  const { providerFingerprint } = await import("../src/lib/settings");
+  const app = await panel();
+  app.node("processButton").click();
+  await flush();
+  const stored = app.stored();
+  const key = Object.keys(stored).find((item) => item !== SETTINGS_KEY);
+  assert.ok(key);
+  const cache = stored[key] as { overview: Record<string, unknown> };
+  const oldKey = summaryCacheStorageKey(
+    { sourceKey: "youtube:Qr15lGAGKpo", videoId: "Qr15lGAGKpo" },
+    "zh-CN",
+    providerFingerprint(DEFAULT_SETTINGS),
+    9,
+  );
+  const old = await panel({ [oldKey]: { ...cache, version: 6, promptVersion: 9 } });
+  const corrupt = await panel({
+    [key]: {
+      ...cache,
+      overview: { ...cache.overview, contributions: { items: [{}], emptyReason: "" } },
+    },
+  });
+  for (const cached of [old, corrupt]) {
+    assert.equal(cached.node("chapterCount").textContent, "1 章");
+    cached.node("copyButton").click();
+    await flush();
+    assert.match(cached.copied(), /尚未提炼主要贡献/);
+    assert.match(cached.copied(), /章节内容/);
   }
 });

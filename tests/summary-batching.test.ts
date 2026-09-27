@@ -33,7 +33,11 @@ const response = (input: TranscriptSegment[], usage = true) =>
                   },
                 ],
               },
-              overview: { summary: "概要", keyPoints: ["重要限制"] },
+              overview: {
+                summary: "概要",
+                keyPoints: ["重要限制"],
+                contributions: { items: [], emptyReason: "材料未呈现明确贡献" },
+              },
               chapters: input.map((segment) => ({
                 startSegmentId: segment.id,
                 title: `主题 ${segment.id}`,
@@ -201,4 +205,45 @@ test("invalid input remains rejected before any provider call", async (t) => {
     );
   }
   assert.equal(fetch.mock.callCount(), 0);
+});
+
+test("batch synthesis preserves non-boundary contribution evidence from all portions", async (t) => {
+  const input = reported();
+  let calls = 0;
+  const evidenceIds: string[] = [];
+  t.mock.method(globalThis, "fetch", async (_url: unknown, init: RequestInit) => {
+    const batch = requestInput(init);
+    calls++;
+    const payload = await response([batch[0] as TranscriptSegment]).json();
+    const result = JSON.parse(payload.choices[0].message.content);
+    if (calls < 3) evidenceIds.push((batch[10] ?? batch[0])?.id ?? "");
+    else {
+      for (const id of evidenceIds)
+        assert.ok(batch.some((segment) => segment.id === id && segment.text.includes("文")));
+    }
+    result.overview.contributions = {
+      items: [
+        {
+          title: "综合贡献",
+          problem: "分散证据",
+          value: "跨段整合",
+          boundary: "保留原始限制",
+          evidenceSegmentIds: calls < 3 ? [evidenceIds.at(-1)] : evidenceIds,
+        },
+      ],
+      emptyReason: "",
+    };
+    payload.choices[0].message.content = JSON.stringify(result);
+    return new Response(JSON.stringify(payload));
+  });
+  const result = await generateVideoSummary(DEFAULT_SETTINGS, input, "Evidence fixture");
+  assert.equal(calls, 3);
+  assert.deepEqual(
+    result.overview.contributions?.items[0]?.evidence.map((source) => source.segmentId),
+    evidenceIds,
+  );
+  assert.deepEqual(
+    result.overview.contributions?.items[0]?.evidence.map((source) => source.startMs),
+    evidenceIds.map((id) => input.find((segment) => segment.id === id)?.startMs),
+  );
 });

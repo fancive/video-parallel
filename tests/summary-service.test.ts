@@ -13,7 +13,11 @@ const summary = {
       { label: "主要观点", relation: "观点", detail: "依据来自原片", chapterStartIds: ["s0"] },
     ],
   },
-  overview: { summary: "完整概要", keyPoints: ["全片重点"] },
+  overview: {
+    summary: "完整概要",
+    keyPoints: ["全片重点"],
+    contributions: { items: [], emptyReason: "材料未呈现明确贡献" },
+  },
   chapters: [{ startSegmentId: "s0", title: "第一章", summary: "章节概要", keyPoints: [] }],
 };
 const segments = [{ id: "s0", startMs: 0, durationMs: 10000, text: "Transcript." }];
@@ -181,7 +185,17 @@ test("invalid summary output retries with validation feedback", async (t) => {
     calls++;
     const body = JSON.parse(String(init.body));
     if (calls === 2) assert.match(body.messages.at(-1).content, /failed validation/);
-    const value = calls === 1 ? { ...summary, overview: { summary: "", keyPoints: [] } } : summary;
+    const value =
+      calls === 1
+        ? {
+            ...summary,
+            overview: {
+              summary: "",
+              keyPoints: [],
+              contributions: { items: [], emptyReason: "材料未呈现明确贡献" },
+            },
+          }
+        : summary;
     return new Response(
       JSON.stringify({ choices: [{ message: { content: JSON.stringify(value) } }] }),
     );

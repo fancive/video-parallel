@@ -64,12 +64,27 @@ const chapters: SummaryBlock[] = Array.from({ length: 16 }, (_, index) => ({
   endMs: (index + 1) * 60000,
   content: { title: `章节 ${index}`, summary: "完整细节", keyPoints: ["关键条件"] },
 }));
-test("the panel displays the full outline and enlarges it without seeking or opening a tab", (t) => {
+test("the outline remains optional and collapsed while contribution content is visible", (t) => {
   installDocument(t);
   const seeks: number[] = [];
   let opens = 0;
   const view = createSummaryView(
-    { summary: "完整概览", keyPoints: ["要点"] },
+    {
+      summary: "完整概览",
+      keyPoints: ["要点"],
+      contributions: {
+        items: [
+          {
+            title: "工程分工方法",
+            problem: "重复维护信息",
+            value: "统一信息供给",
+            boundary: "依赖来源质量",
+            evidence: [{ segmentId: "s1", startMs: 42000 }],
+          },
+        ],
+        emptyReason: "",
+      },
+    },
     chapters,
     () => opens++,
     (time) => seeks.push(time),
@@ -82,6 +97,15 @@ test("the panel displays the full outline and enlarges it without seeking or ope
       .every((node) => !node.open),
   );
   assert.equal(view.all().find((node) => node.className === "full-summary")?.open, true);
+  assert.equal(view.all().find((node) => node.className === "optional-outline")?.open, false);
+  const section = view.all().find((node) => node.className === "contributions");
+  assert.ok(section);
+  assert.ok(section.all().some((node) => node.textContent === "工程分工方法"));
+  assert.equal(
+    section.all().some((node) => node.textContent === "章节 0"),
+    false,
+  );
+
   assert.equal(view.all().filter((node) => node.className === "node-button").length, 0);
   const image = view.all().find((node) => node.tag === "img") as Element & { src: string };
   assert.ok(image);
@@ -121,6 +145,11 @@ test("the panel displays the full outline and enlarges it without seeking or ope
   assert.equal(links.length, 16);
   links[15]?.click();
   assert.deepEqual(seeks, [900]);
+  section
+    .all()
+    .find((node) => node.className === "contribution-source")
+    ?.click();
+  assert.deepEqual(seeks, [900, 42]);
 });
 
 test("playback may scroll only when the complete chapter list is open", () => {
