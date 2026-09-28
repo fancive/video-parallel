@@ -50,8 +50,8 @@ export function createSummaryView(
         text("p", item.value, "contribution-value"),
       );
       if (item.boundary) {
-        const boundary = text("details", "", "contribution-boundary");
-        boundary.append(text("summary", "适用边界"), text("p", item.boundary));
+        const boundary = text("div", "", "contribution-boundary");
+        boundary.append(text("strong", "适用边界"), text("p", item.boundary));
         entry.append(boundary);
       }
       const sources = text("div", "", "contribution-sources");

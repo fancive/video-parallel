@@ -100,6 +100,11 @@ test("contributions and chapters remain visible without a chapter outline", (t) 
   );
   const section = view.all().find((node) => node.className === "contributions");
   assert.ok(section);
+  assert.equal(
+    section.all().some((node) => node.tag === "details" || node.hidden),
+    false,
+  );
+  assert.ok(section.all().some((node) => node.textContent === "依赖来源质量"));
   assert.ok(section.all().some((node) => node.textContent === "工程分工方法"));
   assert.equal(
     section.all().some((node) => node.textContent === "章节 0"),

@@ -22,6 +22,10 @@ The extension reads caption tracks already available on YouTube and Bilibili. It
 audio or depend on a transcript proxy. The complete transcript is sent to your configured provider
 only when you explicitly click **Process video**.
 
+For Bilibili, a visible subtitle burned into the picture is not a readable CC track. If no track
+is returned, check the player’s CC menu and your login state, then reload the video. Audio
+transcription and OCR are not currently supported.
+
 ## Install from GitHub Release
 
 The release zip is a ready-to-use extension package:
@@ -68,7 +72,7 @@ it has not yet been published as a new GitHub release.
 - A concise overview followed by **Main contributions**: 1–3 supported perspectives, methods,
   evidence, syntheses, or practical insights selected across the complete video, not per chapter.
 - Each contribution states what it offers, the problem addressed, and its value. Supported limits
-  can be expanded, and source-time buttons let you check the original video.
+  are shown directly, and source-time buttons let you check the original video.
 - If there is no clear contribution, the result explains why instead of padding the list.
   The prompt prohibits unsupported first-ever novelty claims and invented comparisons.
 - The complete-summary section stays expanded by default; takeaways and individual chapter details

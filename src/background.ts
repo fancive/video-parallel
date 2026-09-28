@@ -250,8 +250,8 @@ async function loadBilibiliVideo(tabId: number, page: VideoPage): Promise<VideoC
   if (!track) {
     throw new Error(
       snapshot.loggedIn
-        ? "这个视频没有可读取的 Bilibili CC 字幕。"
-        : "Bilibili 需要登录后才会返回字幕轨道；请先登录，如果仍为空则该视频没有 CC 字幕。",
+        ? "Bilibili 当前未返回这个视频的 CC 字幕轨道。请先确认播放器中有可选择的 CC 字幕，再刷新页面重试。画面中直接显示的字幕可能已压进视频，不是可读取的 CC 字幕；本扩展暂不支持从音频或画面转写。"
+        : "当前未登录 Bilibili，且未返回 CC 字幕轨道。请先登录并刷新视频页面后重试；如果播放器没有 CC 字幕选项，本扩展暂不能从音频或画面转写字幕。",
     );
   }
 
