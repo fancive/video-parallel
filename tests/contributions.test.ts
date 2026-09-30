@@ -68,3 +68,44 @@ test("new summaries require real contributions or an explicit absence rather tha
   assert.match(prompt, /Do not add external knowledge/);
   assert.match(prompt, /1-3 substantive contributions/);
 });
+
+test("contribution validation identifies the exact field without exposing response text", () => {
+  const cases: Array<[unknown, RegExp]> = [
+    [undefined, /overview\.contributions .*对象/],
+    [{ emptyReason: "" }, /overview\.contributions\.items .*数组/],
+    [{ items: [item] }, /overview\.contributions\.emptyReason .*字符串/],
+    [{ items: [], emptyReason: "" }, /overview\.contributions\.emptyReason .*原因/],
+    [{ items: Array(4).fill(item), emptyReason: "" }, /overview\.contributions\.items .*最多 3/],
+    [
+      { items: [{ ...item, boundary: null }], emptyReason: "" },
+      /overview\.contributions\.items\[0\]\.boundary .*字符串/,
+    ],
+    [
+      { items: [{ ...item, value: "" }], emptyReason: "" },
+      /overview\.contributions\.items\[0\]\.value .*非空字符串/,
+    ],
+    [
+      { items: [{ ...item, evidenceSegmentIds: [] }], emptyReason: "" },
+      /overview\.contributions\.items\[0\]\.evidenceSegmentIds .*1–3/,
+    ],
+    [
+      { items: [{ ...item, evidenceSegmentIds: ["s1", "s1"] }], emptyReason: "" },
+      /overview\.contributions\.items\[0\]\.evidenceSegmentIds\[1\] .*重复/,
+    ],
+    [
+      { items: [{ ...item, evidenceSegmentIds: ["private-response-text"] }], emptyReason: "" },
+      /overview\.contributions\.items\[0\]\.evidenceSegmentIds\[0\] .*字幕 ID/,
+    ],
+  ];
+  for (const [value, expected] of cases) {
+    assert.throws(
+      () => parseContributions(value, segments),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.match(error.message, expected);
+        assert.doesNotMatch(error.message, /private-response-text|Supported method/);
+        return true;
+      },
+    );
+  }
+});

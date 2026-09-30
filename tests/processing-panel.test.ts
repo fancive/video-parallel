@@ -300,6 +300,40 @@ test("newly generated summary stays readable when cache storage fails", async ()
   assert.match(app.node("processingErrorHint").textContent, /复制或导出/);
 });
 
+test("contribution errors copy the exact invalid field without leaking the rejected response", async () => {
+  const app = await panel();
+  app.reply({
+    ...success,
+    overview: {
+      ...success.overview,
+      contributions: {
+        items: [
+          {
+            title: "Private response title",
+            problem: "问题",
+            value: "价值",
+            boundary: "",
+            evidenceSegmentIds: ["private-test-key"],
+          },
+        ],
+        emptyReason: "",
+      },
+    },
+  });
+  app.node("processButton").click();
+  await flush();
+  assert.equal(app.node("processingError").hidden, false);
+  assert.match(app.node("processingErrorTitle").textContent, /解析概要/);
+  app.node("copyErrorButton").click();
+  await flush();
+  assert.match(app.copied(), /overview\.contributions\.items\[0\]\.evidenceSegmentIds\[0\]/);
+  assert.doesNotMatch(
+    app.copied(),
+    /Private response title|private-test-key|Private transcript text/,
+  );
+  assert.equal(app.cacheCount(), 0);
+});
+
 test("a late failure cannot overwrite a newly loaded video", async () => {
   const app = await panel();
   let finish: (value: unknown) => void = () => {};
@@ -388,6 +422,31 @@ test("a summary cache restores contributions and chapters without an outline", a
   assert.match(cached.copied(), /章节内容/);
   assert.match(cached.copied(), /主要贡献/);
   assert.match(cached.copied(), /材料未呈现明确贡献/);
+});
+
+test("prompt-ten caches retain their contributions after the prompt upgrade", async () => {
+  const { summaryCacheStorageKey } = await import("../src/lib/video-source");
+  const { providerFingerprint } = await import("../src/lib/settings");
+  const app = await panel();
+  app.node("processButton").click();
+  await flush();
+  const stored = app.stored();
+  const key = Object.keys(stored).find((item) => item !== SETTINGS_KEY);
+  assert.ok(key);
+  const previousKey = summaryCacheStorageKey(
+    { sourceKey: "youtube:Qr15lGAGKpo", videoId: "Qr15lGAGKpo" },
+    "zh-CN",
+    providerFingerprint(DEFAULT_SETTINGS),
+    10,
+  );
+  const cached = await panel({
+    [previousKey]: { ...(stored[key] as object), version: 7, promptVersion: 10 },
+  });
+  assert.equal(cached.node("chapterCount").textContent, "1 章");
+  cached.node("copyButton").click();
+  await flush();
+  assert.match(cached.copied(), /材料未呈现明确贡献/);
+  assert.doesNotMatch(cached.copied(), /尚未提炼主要贡献/);
 });
 
 test("old caches retain chapter summaries and ignore the retired visual schema", async () => {

@@ -17,7 +17,7 @@ const segments: TranscriptSegment[] = [
 
 test("chapter prompt is platform-neutral and rejects interval splitting", () => {
   const messages = buildSummaryMessages(segments, "zh-CN", "A useful video");
-  assert.equal(SUMMARY_PROMPT_VERSION, 10);
+  assert.equal(SUMMARY_PROMPT_VERSION, 11);
   assert.match(messages[0]?.content ?? "", /Return no more than 8 chapters/);
   assert.match(messages[0]?.content ?? "", /complete video transcript/);
   assert.doesNotMatch(messages[0]?.content ?? "", /YouTube|Bilibili/i);
@@ -30,6 +30,10 @@ test("chapter prompt is platform-neutral and rejects interval splitting", () => 
   assert.match(messages[0]?.content ?? "", /first chapter must start at segment id s0/i);
   assert.match(messages[1]?.content ?? "", /"outputLanguage":"简体中文"/);
   assert.match(messages[1]?.content ?? "", /A new argument begins/);
+  assert.match(messages[0]?.content ?? "", /never null or omitted/);
+  assert.match(messages[0]?.content ?? "", /copy exact transcript id strings/);
+  assert.match(messages[0]?.content ?? "", /"evidenceSegmentIds":\["s0"\]/);
+  assert.doesNotMatch(messages[0]?.content ?? "", /unchanged-id/);
 });
 
 test("summary prompt repeats the selected language in its native wording", () => {

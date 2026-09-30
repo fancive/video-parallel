@@ -2,7 +2,7 @@ import { parseContributions } from "./contributions";
 import { TARGET_LANGUAGE_LABELS } from "./settings";
 import type { ChapterOutline, SummaryBlock, TranscriptSegment, VideoOverview } from "./types";
 
-export const SUMMARY_PROMPT_VERSION = 10;
+export const SUMMARY_PROMPT_VERSION = 11;
 export const MAX_CHAPTER_TRANSCRIPT_SEGMENTS = 2000;
 export const MAX_CHAPTER_TRANSCRIPT_CHARACTERS = 100_000;
 export const MAX_CHAPTERS = 8;
@@ -42,7 +42,8 @@ export function buildSummaryMessages(
         "A contribution can be an explanatory perspective, useful method, supported evidence, synthesis, or practical experience. For each, title states what it offers, problem states the specific difficulty addressed, value explains why it is useful, and boundary states supported limits (empty string if no limit is given). Use short, concrete sentences in the required output language.",
         "Do not claim first-ever novelty, breakthroughs, superiority, or compare with an invented baseline. Distinguish this video's value from verified originality. Do not add external knowledge or unsupported personal advice.",
         "Each contribution must cite 1-3 distinct evidenceSegmentIds from the supplied transcript supporting it. If no clear contribution is supported, return items:[] and a concrete emptyReason; otherwise emptyReason is an empty string.",
-        'Return only JSON with this shape: {"overview":{"summary":"…","keyPoints":["…"],"contributions":{"items":[{"title":"…","problem":"…","value":"…","boundary":"…","evidenceSegmentIds":["unchanged-id"]}],"emptyReason":""}},"chapters":[{"startSegmentId":"unchanged-id","title":"…","summary":"…","keyPoints":["…"]}]}. Property names and startSegmentId stay unchanged; every ellipsis must be replaced with text in the required output language.',
+        'Include every required field. boundary and emptyReason must always be strings, never null or omitted; use "" when appropriate. evidenceSegmentIds and startSegmentId must copy exact transcript id strings, not numeric indices, timestamps, ranges, or translated labels.',
+        `Return only JSON with this shape: {"overview":{"summary":"…","keyPoints":["…"],"contributions":{"items":[{"title":"…","problem":"…","value":"…","boundary":"…","evidenceSegmentIds":[${JSON.stringify(firstId)}]}],"emptyReason":""}},"chapters":[{"startSegmentId":${JSON.stringify(firstId)},"title":"…","summary":"…","keyPoints":["…"]}]}. The example uses the first input id only to show the format; select actual supporting ids for contributions and actual chapter starts. Keep property names unchanged; replace every ellipsis with text in the required output language. Do not translate any id.`,
       ].join("\n"),
     },
     {

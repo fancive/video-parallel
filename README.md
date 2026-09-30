@@ -165,6 +165,13 @@ shows the failed stage, the original error and a suggested next step. **Copy err
 the video URL, model, subtitle size, elapsed time, extension version and HTTP status when available;
 it excludes the API Key and transcript text.
 
+Starting in **0.1.25**, contribution validation identifies the exact invalid JSON field, including
+missing text, duplicate citations and unknown caption IDs. The single automatic correction attempt
+receives the rejected response and field-specific feedback, so the model can repair its output.
+Invalid citations still fail validation. Rejected responses stay in memory for that correction
+and are not cached. Contribution diagnostics contain field paths and requirements without
+response values. Existing summary caches remain readable.
+
 Starting in **0.1.17**, DeepSeek summaries use streaming responses. The panel shows whether the
 connection is waiting, the model is thinking, or the summary is being generated. Received character
 counts indicate progress; token usage still comes exclusively from the Provider's usage response.

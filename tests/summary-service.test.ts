@@ -206,6 +206,109 @@ test("invalid summary output retries with validation feedback", async (t) => {
   assert.equal("visual" in result, false);
 });
 
+test("the reported 1565-segment size repairs contribution fields using the rejected JSON", async (t) => {
+  const input = Array.from({ length: 1565 }, (_, index) => ({
+    id: `s${index}-${index * 2000}`,
+    startMs: index * 2000,
+    durationMs: 2000,
+    text: "字".repeat(index < 867 ? 12 : 11),
+  }));
+  assert.equal(
+    input.reduce((sum, segment) => sum + segment.text.length, 0),
+    18082,
+  );
+  const valid = {
+    overview: {
+      summary: "概要结论",
+      keyPoints: ["字幕支持的要点"],
+      contributions: {
+        items: [
+          {
+            title: "解释视角",
+            problem: "概念难以理解",
+            value: "解释概念与影响",
+            boundary: "",
+            evidenceSegmentIds: [input[900]?.id],
+          },
+        ],
+        emptyReason: "",
+      },
+    },
+    chapters: [{ ...summary.chapters[0], startSegmentId: input[0]?.id }],
+  };
+  const invalid = structuredClone(valid);
+  Reflect.deleteProperty(invalid.overview.contributions.items[0] ?? {}, "boundary");
+  const rejected = JSON.stringify(invalid);
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async (_url: unknown, init: RequestInit) => {
+    const body = JSON.parse(String(init.body));
+    assert.equal(JSON.parse(body.messages[1].content).transcript.length, 1565);
+    if (++calls === 2) {
+      const feedback = JSON.parse(body.messages.at(-1).content);
+      assert.equal(feedback.previousResponse, rejected);
+      assert.match(feedback.validationError, /overview\.contributions\.items\[0\]\.boundary/);
+      assert.match(feedback.instruction, /failed validation/);
+      assert.match(feedback.instruction, /complete JSON/);
+    }
+    return new Response(
+      JSON.stringify({
+        choices: [{ message: { content: calls === 1 ? rejected : JSON.stringify(valid) } }],
+        usage: { prompt_tokens: 100, completion_tokens: 50 },
+      }),
+    );
+  });
+  const result = await generateVideoSummary(
+    { ...DEFAULT_SETTINGS, model: "deepseek-v4-flash" },
+    input,
+    "BV1fZap6CEw6 size fixture",
+  );
+  assert.equal(calls, 2);
+  assert.deepEqual(result.overview.contributions?.items[0]?.evidence, [
+    { segmentId: input[900]?.id, startMs: input[900]?.startMs },
+  ]);
+  assert.deepEqual(result.usage, { inputTokens: 200, outputTokens: 100 });
+});
+
+test("invalid contribution evidence after the correction still fails without accepting a partial summary", async (t) => {
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async () => {
+    calls++;
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                ...summary,
+                overview: {
+                  ...summary.overview,
+                  contributions: {
+                    items: [
+                      {
+                        title: "贡献",
+                        problem: "问题",
+                        value: "价值",
+                        boundary: "",
+                        evidenceSegmentIds: ["unknown"],
+                      },
+                    ],
+                    emptyReason: "",
+                  },
+                },
+              }),
+            },
+          },
+        ],
+      }),
+    );
+  });
+  await assert.rejects(generateVideoSummary(DEFAULT_SETTINGS, segments, "Invalid evidence"), {
+    stage: "response",
+    message: /overview\.contributions\.items\[0\]\.evidenceSegmentIds\[0\]/,
+  });
+  assert.equal(calls, 2);
+});
+
 test("excess chapters trigger a merge retry instead of truncating the final topic", async (t) => {
   const input = Array.from({ length: 9 }, (_, index) => ({
     id: `s${index}`,

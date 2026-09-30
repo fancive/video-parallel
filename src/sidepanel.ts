@@ -407,12 +407,14 @@ async function restoreSummaryCache(): Promise<void> {
   const generation = loadingGeneration;
   const sourceFingerprint = summarySourceFingerprint();
   const key = summaryCacheKey();
+  const contributionsKey = summaryCacheKey(10);
   const priorKey = summaryCacheKey(9);
   const outlineKey = summaryCacheKey(8);
   const previousKey = summaryCacheKey(7);
   const legacyKey = summaryCacheKey(6);
   const stored = await chrome.storage.local.get([
     key,
+    contributionsKey,
     priorKey,
     outlineKey,
     previousKey,
@@ -427,6 +429,7 @@ async function restoreSummaryCache(): Promise<void> {
     return;
   const candidate =
     stored[key] ??
+    stored[contributionsKey] ??
     stored[priorKey] ??
     stored[outlineKey] ??
     stored[previousKey] ??
@@ -435,7 +438,8 @@ async function restoreSummaryCache(): Promise<void> {
   if (
     !cache ||
     !(
-      (cache.version === 7 && cache.promptVersion === SUMMARY_PROMPT_VERSION) ||
+      (cache.version === 7 &&
+        (cache.promptVersion === SUMMARY_PROMPT_VERSION || cache.promptVersion === 10)) ||
       (cache.version === 6 && (cache.promptVersion === 9 || cache.promptVersion === 8)) ||
       (cache.version === 5 && cache.promptVersion === 7) ||
       (cache.version === 4 && cache.promptVersion === 6)
